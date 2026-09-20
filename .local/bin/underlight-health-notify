@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+
+set -uo pipefail
+
+command -v notify-send >/dev/null 2>&1 || exit 0
+if command -v nvidia-smi >/dev/null 2>&1 && ! nvidia-smi >/dev/null 2>&1; then
+  if [[ -e /dev/nvidiactl ]]; then
+    notify-send --urgency=critical 'Underlight · NVIDIA needs attention' \
+      'The NVIDIA device is visible but nvidia-smi failed. Run underlight-doctor for details.'
+  fi
+fi

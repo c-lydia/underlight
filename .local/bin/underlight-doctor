@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+
+set -uo pipefail
+
+pass=0
+warn=0
+fail=0
+
+result() {
+  local level=$1 label=$2 detail=${3:-}
+  case $level in
+    PASS) ((pass+=1)); mark='OK' ;;
+    WARN) ((warn+=1)); mark='!!' ;;
+    FAIL) ((fail+=1)); mark='XX' ;;
+  esac
+  printf '[%s] %-24s %s\n' "$mark" "$label" "$detail"
+}
+
+has() {
+  if command -v "$1" >/dev/null 2>&1; then result PASS "$1" "$(command -v "$1")"; else result WARN "$1" 'not installed'; fi
+}
+
+if [[ ${1:-} == --terminal ]]; then
+  command -v kitty >/dev/null 2>&1 || { printf 'underlight-doctor: kitty is not installed\n' >&2; exit 1; }
+  exec kitty --class underlight-doctor --title 'Underlight doctor' sh -lc 'underlight-doctor; printf "\nPress Enter to close..."; read -r _'
+fi
+
+printf 'Underlight system doctor\n\nCore desktop\n'
+for command in Hyprland hyprctl waybar kitty wofi; do has "$command"; done
+if Hyprland --verify-config --config "${HOME:?}/.config/hypr/hyprland.conf" >/dev/null 2>&1; then
+  result PASS 'Hyprland config' 'parses successfully'
+else
+  result FAIL 'Hyprland config' 'verification failed'
+fi
+
+printf '\nGPU and power\n'
+if gpu_line=$(nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader 2>&1); then
+  result PASS 'NVIDIA' "$gpu_line"
+elif [[ -r /proc/driver/nvidia/version && ! -e /dev/nvidiactl ]]; then
+  result WARN 'NVIDIA' 'driver loaded; this environment cannot see host GPU device nodes'
+elif [[ -r /proc/driver/nvidia/version ]]; then
+  result FAIL 'NVIDIA' "${gpu_line//$'\n'/ }"
+else
+  result WARN 'NVIDIA' 'driver not loaded'
+fi
+if command -v switcherooctl >/dev/null 2>&1; then
+  prime=$(switcherooctl list 2>&1 || true)
+  if [[ $prime == *NVIDIA* ]]; then result PASS 'PRIME offload' 'Intel + NVIDIA discovered'; else result WARN 'PRIME offload' 'no discrete GPU returned in this environment'; fi
+else
+  result WARN 'PRIME offload' 'switcheroo-control is not installed'
+fi
+has powerprofilesctl
+
+printf '\nAI stack\n'
+has ollama
+if command -v ollama >/dev/null 2>&1; then
+  ollama_state=$(ollama list 2>&1)
+  if [[ $? -eq 0 ]]; then
+    model_count=$(awk 'NR > 1 && NF { count++ } END { print count+0 }' <<< "$ollama_state")
+    result PASS 'Ollama service' "$model_count local model(s)"
+  elif [[ $ollama_state == *'operation not permitted'* ]]; then
+    result WARN 'Ollama service' 'local socket blocked by this sandbox; run doctor in a normal terminal'
+  else
+    result WARN 'Ollama service' "${ollama_state//$'\n'/ }"
+  fi
+fi
+has opencode
+if jq -e . "${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode.json" >/dev/null 2>&1; then
+  result PASS 'OpenCode config' 'valid JSON'
+else
+  result WARN 'OpenCode config' 'missing or invalid'
+fi
+has hermes
+if [[ -s $HOME/.hermes/config.yaml ]]; then result PASS 'Hermes config' 'present'; else result WARN 'Hermes config' 'missing'; fi
+if [[ -r $HOME/.hermes/gateway.pid ]]; then
+  gateway_pid=$(jq -r '.pid // empty' "$HOME/.hermes/gateway.pid" 2>/dev/null || cat "$HOME/.hermes/gateway.pid")
+  if [[ $gateway_pid =~ ^[0-9]+$ ]] && kill -0 "$gateway_pid" 2>/dev/null; then
+    result PASS 'Hermes gateway' "running (PID $gateway_pid)"
+  else
+    result WARN 'Hermes gateway' 'stopped or stale PID'
+  fi
+else
+  result WARN 'Hermes gateway' 'no PID file'
+fi
+
+printf '\nDeveloper tools\n'
+has nvim
+if [[ -x $HOME/.local/bin/nvim-workspace ]]; then result PASS 'nvim-workspace' 'installed'; else result WARN 'nvim-workspace' 'not installed'; fi
+if ros_setup=$(find /opt/ros -mindepth 2 -maxdepth 2 -name setup.bash -print -quit 2>/dev/null); [[ -n $ros_setup ]]; then
+  result PASS 'ROS 2' "${ros_setup%/setup.bash}"
+else
+  result WARN 'ROS 2' 'no /opt/ros/*/setup.bash found'
+fi
+if [[ -f $HOME/projects/give_laptop_ac/main.py ]]; then result PASS 'give_laptop_ac' 'present'; else result WARN 'give_laptop_ac' 'project missing'; fi
+
+printf '\nSummary: %d passed, %d warning(s), %d failure(s)\n' "$pass" "$warn" "$fail"
+(( fail == 0 ))

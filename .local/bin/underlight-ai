@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+usage() {
+  printf '%s\n' \
+    'Usage: underlight-ai menu|status|opencode|hermes|ollama [DIRECTORY|MODEL]' \
+    '' \
+    'Launch the existing Ollama, OpenCode, and Hermes setup from Underlight.'
+}
+
+terminal() {
+  local class=$1 title=$2 directory=$3
+  shift 3
+  command -v kitty >/dev/null 2>&1 || { printf 'underlight-ai: kitty is not installed\n' >&2; return 1; }
+  exec kitty --class "$class" --title "$title" --directory "$directory" "$@"
+}
+
+status() {
+  printf 'Underlight AI stack\n\n'
+  if command -v ollama >/dev/null 2>&1; then
+    ollama --version 2>&1 || true
+    printf '\nLoaded Ollama models\n'
+    ollama ps 2>&1 || true
+  else
+    printf 'Ollama: not installed\n'
+  fi
+  if command -v opencode >/dev/null 2>&1; then
+    printf '\nOpenCode %s\n' "$(opencode --version 2>&1 | tail -n 1)"
+  else
+    printf '\nOpenCode: not installed\n'
+  fi
+  if command -v hermes >/dev/null 2>&1; then
+    printf '\n%s\n' "$(hermes --version 2>&1 | head -n 1)"
+    if [[ -r ${HOME:?}/.hermes/gateway.pid ]]; then
+      gateway_pid=$(jq -r '.pid // empty' "$HOME/.hermes/gateway.pid" 2>/dev/null || cat "$HOME/.hermes/gateway.pid")
+      if [[ $gateway_pid =~ ^[0-9]+$ ]] && kill -0 "$gateway_pid" 2>/dev/null; then
+        printf 'Hermes gateway: running (PID %s)\n' "$gateway_pid"
+      else
+        printf 'Hermes gateway: stopped or stale PID\n'
+      fi
+    fi
+  else
+    printf '\nHermes: not installed\n'
+  fi
+}
+
+menu() {
+  command -v wofi >/dev/null 2>&1 || { printf 'underlight-ai: wofi is not installed\n' >&2; return 1; }
+  choice=$(printf '%s\n' \
+    'OpenCode' \
+    'Hermes' \
+    'Ollama model' \
+    'AI stack status' \
+    'AI performance profile' \
+    'Balanced profile' |
+    wofi --dmenu --insensitive --prompt 'AI tools') || return
+  case $choice in
+    OpenCode) exec "$0" opencode ;;
+    Hermes) exec "$0" hermes ;;
+    'Ollama model') exec "$0" ollama ;;
+    'AI stack status') terminal underlight-ai-status 'AI stack status' "$HOME" sh -lc 'underlight-ai status; printf "\nPress Enter to close..."; read -r _' ;;
+    'AI performance profile') exec underlight-profile ai ;;
+    'Balanced profile') exec underlight-profile balanced ;;
+  esac
+}
+
+command=${1:-menu}
+[[ $# -gt 0 ]] && shift
+case $command in
+  -h|--help) usage ;;
+  menu) menu ;;
+  status) status ;;
+  opencode)
+    directory=${1:-$PWD}
+    [[ -d $directory ]] || { printf 'underlight-ai: not a directory: %s\n' "$directory" >&2; exit 2; }
+    command -v opencode >/dev/null 2>&1 || { printf 'underlight-ai: opencode is not installed\n' >&2; exit 1; }
+    underlight-profile ai >/dev/null
+    terminal io.github.chhenglydia.OpenCode OpenCode "$directory" opencode "$directory"
+    ;;
+  hermes)
+    directory=${1:-$PWD}
+    [[ -d $directory ]] || { printf 'underlight-ai: not a directory: %s\n' "$directory" >&2; exit 2; }
+    command -v hermes >/dev/null 2>&1 || { printf 'underlight-ai: hermes is not installed\n' >&2; exit 1; }
+    underlight-profile ai >/dev/null
+    terminal io.github.chhenglydia.Hermes Hermes "$directory" hermes --in "$directory"
+    ;;
+  ollama)
+    command -v ollama >/dev/null 2>&1 || { printf 'underlight-ai: ollama is not installed\n' >&2; exit 1; }
+    model=${1:-}
+    if [[ -z $model ]]; then
+      command -v wofi >/dev/null 2>&1 || { printf 'underlight-ai: pass an Ollama model name\n' >&2; exit 2; }
+      model=$(ollama list 2>/dev/null | awk 'NR > 1 { print $1 }' | wofi --dmenu --insensitive --prompt 'Ollama model') || exit
+    fi
+    [[ -n $model ]] || exit 0
+    underlight-profile ai >/dev/null
+    terminal io.github.chhenglydia.Ollama "Ollama · $model" "$PWD" ollama run "$model"
+    ;;
+  *) usage >&2; exit 2 ;;
+esac

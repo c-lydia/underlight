@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+usage() {
+  printf '%s\n' \
+    'Usage: underlight-profile status|balanced|performance|battery|auto|menu [-- COMMAND ...]' \
+    '' \
+    'Apply an opt-in desktop power profile. No profile changes occur at login.' \
+    'Use "ai -- COMMAND" as an alias for "performance -- COMMAND".'
+}
+
+ac_online() {
+  local supply online
+  shopt -s nullglob
+  for supply in /sys/class/power_supply/*; do
+    [[ -r $supply/type && -r $supply/online ]] || continue
+    [[ $(<"$supply/type") == Mains ]] || continue
+    online=$(<"$supply/online")
+    [[ $online == 1 ]] && return 0
+  done
+  return 1
+}
+
+current_profile() {
+  if command -v powerprofilesctl >/dev/null 2>&1; then
+    powerprofilesctl get 2>/dev/null || printf 'unknown\n'
+  else
+    printf 'unavailable\n'
+  fi
+}
+
+apply_profile() {
+  local requested=$1 target=$1
+  [[ $requested == ai ]] && target=performance
+  if ! command -v powerprofilesctl >/dev/null 2>&1; then
+    printf 'underlight-profile: powerprofilesctl is not installed\n' >&2
+    return 1
+  fi
+  powerprofilesctl set "$target"
+  printf 'Underlight profile: %s\n' "$requested"
+}
+
+choose_profile() {
+  command -v wofi >/dev/null 2>&1 || { printf 'underlight-profile: wofi is not installed\n' >&2; return 1; }
+  printf '%s\n' 'Automatic (AC/battery)' 'AI / performance' 'Balanced' 'Battery saver' |
+    wofi --dmenu --insensitive --prompt 'Power profile'
+}
+
+profile=${1:-status}
+shift || true
+case $profile in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+  status)
+    printf 'Power profile: %s\n' "$(current_profile)"
+    if ac_online; then printf 'Power source: AC\n'; else printf 'Power source: battery\n'; fi
+    exit 0
+    ;;
+  menu)
+    selection=$(choose_profile) || exit $?
+    case $selection in
+      'Automatic (AC/battery)') profile=auto ;;
+      'AI / performance') profile=ai ;;
+      'Balanced') profile=balanced ;;
+      'Battery saver') profile=battery ;;
+      *) exit 0 ;;
+    esac
+    ;;
+  auto)
+    if ac_online; then profile=performance; else profile=battery; fi
+    ;;
+esac
+
+case $profile in
+  ai|performance) apply_profile "$profile" ;;
+  balanced) apply_profile balanced ;;
+  battery) apply_profile power-saver ;;
+  *) usage >&2; exit 2 ;;
+esac
+
+if [[ ${1:-} == -- ]]; then shift; fi
+if [[ $# -gt 0 ]]; then
+  if [[ $profile == ai || $profile == performance ]]; then
+    exec underlight-gpu-run "$@"
+  fi
+  exec "$@"
+fi

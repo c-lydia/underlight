@@ -152,6 +152,10 @@ window#waybar {
   color: #565f89;
 }
 
+#custom-gpu.sleeping {
+  color: #737da6;
+}
+
 #cpu.warning,
 #memory.warning {
   color: #e0af68;

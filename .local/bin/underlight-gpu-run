@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ $# -eq 0 || ${1:-} == -h || ${1:-} == --help ]]; then
+  printf '%s\n' \
+    'Usage: underlight-gpu-run COMMAND [ARGUMENT ...]' \
+    '' \
+    'Run one application on the discrete GPU of a hybrid-graphics laptop.' \
+    'switcheroo-control is preferred; NVIDIA PRIME variables are the fallback.'
+  [[ $# -gt 0 ]] && exit 0
+  exit 2
+fi
+
+# switcheroo-control discovers the right non-default device and its required
+# environment. Probe it before exec so a missing system service can fall back.
+if command -v switcherooctl >/dev/null 2>&1; then
+  gpu_list=$(switcherooctl list 2>/dev/null || true)
+  if [[ -n ${gpu_list//[[:space:]]/} ]]; then
+    exec switcherooctl launch "$@"
+  fi
+fi
+
+# NVIDIA's documented PRIME render-offload variables cover EGL/Vulkan with the
+# first flag and GLX with the vendor override. The Vulkan selector prevents an
+# application from choosing the iGPU again after offload was requested.
+if [[ -r /proc/driver/nvidia/version ]] || lspci -d 10de: -nn >/dev/null 2>&1; then
+  export __NV_PRIME_RENDER_OFFLOAD=1
+  export __GLX_VENDOR_LIBRARY_NAME=nvidia
+  export __VK_LAYER_NV_optimus=NVIDIA_only
+  exec "$@"
+fi
+
+# Mesa hybrid systems use DRI_PRIME. Keeping this fallback makes the helper
+# useful if the dotfiles are restored to a non-NVIDIA laptop later.
+export DRI_PRIME=1
+exec "$@"

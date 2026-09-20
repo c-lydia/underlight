@@ -12,10 +12,21 @@ json() {
 
 case "${1:-}" in
   gpu)
-    if gpu_data=$(nvidia-smi --query-gpu=utilization.gpu,temperature.gpu,name --format=csv,noheader,nounits 2>/dev/null | head -n 1) && [[ $gpu_data =~ ^[[:space:]]*[0-9]+[[:space:]]*, ]]; then
-      IFS=, read -r usage temperature name <<< "$gpu_data"
-      usage=${usage// /}; temperature=${temperature// /}; name=${name# }
-      json "GPU ${usage}%" "$name\n${temperature}°C" active
+    if gpu_data=$(nvidia-smi --query-gpu=utilization.gpu,temperature.gpu,power.draw,memory.used,memory.total,name --format=csv,noheader,nounits 2>/dev/null | head -n 1) && [[ $gpu_data =~ ^[[:space:]]*[0-9]+[[:space:]]*, ]]; then
+      IFS=, read -r usage temperature power memory_used memory_total name <<< "$gpu_data"
+      usage=${usage// /}; temperature=${temperature// /}; power=${power// /}
+      memory_used=${memory_used// /}; memory_total=${memory_total// /}; name=${name# }
+      processes=$(nvidia-smi --query-compute-apps=process_name --format=csv,noheader 2>/dev/null | sed '/^[[:space:]]*$/d' | sort -u | paste -sd ', ' -)
+      state=idle
+      awk -v usage="$usage" -v power="$power" -v memory="$memory_used" 'BEGIN { exit !(usage > 2 || power > 8 || memory > 128) }' && state=active
+      tooltip="$name\n${temperature}°C · ${power} W\nVRAM ${memory_used} / ${memory_total} MiB"
+      [[ -n $processes ]] && tooltip+="\nCompute: $processes"
+      json "GPU ${usage}%" "$tooltip" "$state"
+      exit
+    fi
+
+    if lspci -d 10de: -nn >/dev/null 2>&1 || [[ -r /proc/driver/nvidia/version ]]; then
+      json "GPU sleep" "NVIDIA is present but sleeping, or this process cannot access its device nodes" sleeping
       exit
     fi
 

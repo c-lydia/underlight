@@ -94,7 +94,10 @@
   "custom/gpu": {
     "exec": "/home/chheng-lydia/.local/bin/underlight-sensor gpu",
     "return-type": "json",
-    "interval": 3
+    "interval": 3,
+    "on-click": "/home/chheng-lydia/.local/bin/underlight-gpu-menu",
+    "on-click-middle": "/home/chheng-lydia/.local/bin/underlight-laptop",
+    "on-click-right": "/home/chheng-lydia/.local/bin/underlight-doctor --terminal"
   },
   "custom/fan": {
     "exec": "/home/chheng-lydia/.local/bin/underlight-sensor fan",
