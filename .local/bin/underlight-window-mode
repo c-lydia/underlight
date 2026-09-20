@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+
+set -uo pipefail
+
+window=$(hyprctl activewindow -j 2>/dev/null) || window=''
+
+if [[ -z $window ]] || [[ $(jq -r '.address // ""' <<< "$window" 2>/dev/null) == "" ]]; then
+  printf '%s\n' '{"text":"DESK","tooltip":"No active window\nSuper + left-drag: move\nSuper + right-drag: resize","class":"desktop"}'
+elif [[ $(jq -r '.floating // false' <<< "$window" 2>/dev/null) == true ]]; then
+  printf '%s\n' '{"text":"FLOAT","tooltip":"Floating window\nClick: tile it\nSuper + left-drag: move\nSuper + right-drag: resize","class":"floating"}'
+else
+  printf '%s\n' '{"text":"TILE","tooltip":"Tiled window\nClick: make it float\nSuper + Shift + arrows/HJKL: move","class":"tiled"}'
+fi

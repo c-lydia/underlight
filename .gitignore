@@ -21,3 +21,8 @@ rad.json
 *.flf
 #Test results file
 TestResults.xml
+=======
+__pycache__/
+*.py[cod]
+*.log
+

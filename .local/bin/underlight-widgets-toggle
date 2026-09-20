@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+
+set -u
+
+widget=/home/chheng-lydia/.local/bin/underlight-widgets
+mode=${1:-toggle}
+mapfile -t widget_pids < <(pgrep -f "^(python3 )?${widget}$" 2>/dev/null)
+
+if (( ${#widget_pids[@]} )); then
+  kill "${widget_pids[@]}"
+  if [[ $mode != restart ]]; then
+    exit 0
+  fi
+
+  for _ in {1..20}; do
+    pgrep -f "^(python3 )?${widget}$" >/dev/null 2>&1 || break
+    sleep 0.05
+  done
+fi
+
+hyprctl dispatch exec "$widget" >/dev/null

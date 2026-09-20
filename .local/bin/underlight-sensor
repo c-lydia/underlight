@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+
+set -uo pipefail
+shopt -s nullglob
+
+json() {
+  local text=$1 tooltip=$2 class=$3
+  text=${text//\\/\\\\}; text=${text//\"/\\\"}
+  tooltip=${tooltip//\\/\\\\}; tooltip=${tooltip//\"/\\\"}; tooltip=${tooltip//$'\n'/\\n}
+  printf '{"text":"%s","tooltip":"%s","class":"%s"}\n' "$text" "$tooltip" "$class"
+}
+
+case "${1:-}" in
+  gpu)
+    if gpu_data=$(nvidia-smi --query-gpu=utilization.gpu,temperature.gpu,name --format=csv,noheader,nounits 2>/dev/null | head -n 1) && [[ $gpu_data =~ ^[[:space:]]*[0-9]+[[:space:]]*, ]]; then
+      IFS=, read -r usage temperature name <<< "$gpu_data"
+      usage=${usage// /}; temperature=${temperature// /}; name=${name# }
+      json "GPU ${usage}%" "$name\n${temperature}°C" active
+      exit
+    fi
+
+    for active_file in /sys/class/drm/card*/gt_act_freq_mhz; do
+      [[ -r $active_file ]] || continue
+      max_file=${active_file/gt_act_freq_mhz/gt_max_freq_mhz}
+      [[ -r $max_file ]] || continue
+      active=$(<"$active_file")
+      maximum=$(<"$max_file")
+      (( maximum > 0 )) || continue
+      usage=$((active * 100 / maximum))
+      state=active
+      (( usage == 0 )) && state=idle
+      json "GPU ${usage}%" "Intel UHD clock: ${active} / ${maximum} MHz\nRTX 3050 is asleep or unavailable" "$state"
+      exit
+    done
+    json "GPU —" "No GPU telemetry is exposed" unavailable
+    ;;
+
+  fan)
+    highest=0
+    readings=()
+    for monitor in /sys/class/hwmon/hwmon*; do
+      [[ -r $monitor/name ]] || continue
+      name=$(<"$monitor/name")
+      [[ $name == msi_wmi_platform ]] || continue
+      for input in "$monitor"/fan*_input; do
+        [[ -r $input ]] || continue
+        rpm=$(<"$input")
+        [[ $rpm =~ ^[0-9]+$ ]] || continue
+        (( rpm > highest )) && highest=$rpm
+        (( rpm > 0 )) && readings+=("Fan ${input##*fan}" )
+      done
+    done
+
+    if (( highest > 0 )); then
+      short=$(awk -v rpm="$highest" 'BEGIN { printf "%.1fk", rpm / 1000 }')
+      json "FAN $short" "Fastest fan: ${highest} RPM" active
+    else
+      json "FAN 0" "Fans are stopped or not reporting" idle
+    fi
+    ;;
+
+  *)
+    json "—" "Unknown sensor" unavailable
+    ;;
+esac

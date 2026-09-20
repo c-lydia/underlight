@@ -1,0 +1,129 @@
+{
+  "layer": "top",
+  "position": "top",
+  "height": 38,
+  "spacing": 7,
+  "modules-left": ["group/nav"],
+  "modules-center": ["clock"],
+  "modules-right": ["group/hardware", "group/session"],
+
+  "group/nav": {
+    "orientation": "inherit",
+    "modules": ["custom/launcher", "hyprland/workspaces", "custom/windowmode"]
+  },
+  "group/hardware": {
+    "orientation": "inherit",
+    "modules": ["network", "cpu", "memory", "custom/gpu", "custom/fan"]
+  },
+  "group/session": {
+    "orientation": "inherit",
+    "modules": ["custom/widgets", "tray", "pulseaudio", "battery", "custom/power"]
+  },
+
+  "custom/launcher": {
+    "format": "",
+    "tooltip-format": "Apps",
+    "on-click": "/home/chheng-lydia/.local/bin/underlight-menu"
+  },
+  "hyprland/workspaces": {
+    "format": "{icon}",
+    "format-icons": {
+      "1": "1",
+      "2": "2",
+      "3": "3",
+      "4": "4",
+      "5": "5",
+      "6": "6",
+      "7": "7",
+      "8": "8",
+      "9": "9",
+      "10": "0",
+      "urgent": "!",
+      "default": "·"
+    },
+    "persistent-workspaces": { "*": 5 },
+    "sort-by-number": true,
+    "on-scroll-up": "hyprctl dispatch workspace e+1",
+    "on-scroll-down": "hyprctl dispatch workspace e-1"
+  },
+  "custom/windowmode": {
+    "exec": "/home/chheng-lydia/.local/bin/underlight-window-mode",
+    "return-type": "json",
+    "interval": 1,
+    "on-click": "hyprctl dispatch togglefloating"
+  },
+  "clock": {
+    "interval": 1,
+    "format": "{:%H:%M}",
+    "format-alt": "{:%A, %d %B %Y  ·  %H:%M:%S}",
+    "tooltip-format": "<tt><small>{calendar}</small></tt>",
+    "calendar": { "mode": "month", "weeks-pos": "right" }
+  },
+  "tray": {
+    "icon-size": 14,
+    "spacing": 7
+  },
+  "custom/widgets": {
+    "format": "",
+    "tooltip-format": "Underlight widgets\nClick to show or hide",
+    "on-click": "/home/chheng-lydia/.local/bin/underlight-widgets-toggle"
+  },
+  "network": {
+    "interval": 2,
+    "format-wifi": "  ↓{bandwidthDownBytes} ↑{bandwidthUpBytes}",
+    "format-ethernet": "  ↓{bandwidthDownBytes} ↑{bandwidthUpBytes}",
+    "format-linked": "  linked",
+    "format-disconnected": "",
+    "tooltip-format-wifi": "{essid}  ·  {signalStrength}%\n{ipaddr}\nClick to change network",
+    "tooltip-format-ethernet": "Wired  ·  {ipaddr}",
+    "tooltip-format-disconnected": "Offline  ·  click to connect",
+    "on-click": "gnome-control-center wifi",
+    "on-click-right": "nm-connection-editor"
+  },
+  "cpu": {
+    "interval": 2,
+    "format": "CPU {usage}%",
+    "states": { "warning": 75, "critical": 92 }
+  },
+  "memory": {
+    "interval": 3,
+    "format": "RAM {percentage}%",
+    "tooltip-format": "{used:.1f} / {total:.1f} GiB",
+    "states": { "warning": 80, "critical": 92 }
+  },
+  "custom/gpu": {
+    "exec": "/home/chheng-lydia/.local/bin/underlight-sensor gpu",
+    "return-type": "json",
+    "interval": 3
+  },
+  "custom/fan": {
+    "exec": "/home/chheng-lydia/.local/bin/underlight-sensor fan",
+    "return-type": "json",
+    "interval": 3
+  },
+  "pulseaudio": {
+    "format": "{icon}",
+    "format-muted": "",
+    "format-icons": {
+      "default": ["", "", ""]
+    },
+    "scroll-step": 5,
+    "tooltip-format": "{desc}\nVolume {volume}%  ·  scroll to adjust",
+    "on-click": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
+    "on-click-right": "sh -c 'command -v pavucontrol >/dev/null && pavucontrol || gnome-control-center sound'"
+  },
+  "battery": {
+    "interval": 10,
+    "states": { "warning": 25, "critical": 12 },
+    "format": "{icon} {capacity}%",
+    "format-charging": " {capacity}%",
+    "format-plugged": " {capacity}%",
+    "format-icons": ["", "", "", "", ""],
+    "tooltip-format": "{timeTo}  ·  {power:.1f} W"
+  },
+  "custom/power": {
+    "format": "",
+    "tooltip-format": "Session & power",
+    "on-click": "/home/chheng-lydia/.local/bin/underlight-power"
+  }
+}

@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -o pipefail
+
+if ! command -v cliphist >/dev/null || ! command -v wl-copy >/dev/null; then
+  notify-send 'Clipboard history' 'Install cliphist and wl-clipboard to enable this feature.'
+  exit 1
+fi
+
+selection="$(cliphist list | wofi --dmenu --prompt 'Clipboard' --width 700 --height 480)" || exit 0
+[[ -n "$selection" ]] && printf '%s' "$selection" | cliphist decode | wl-copy

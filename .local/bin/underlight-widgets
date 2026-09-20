@@ -1,0 +1,497 @@
+#!/usr/bin/env python3
+"""Small desktop instruments for the Underlight Hyprland session."""
+
+import calendar
+import ctypes
+import fcntl
+import json
+import os
+import pathlib
+import subprocess
+import time
+from datetime import datetime
+
+import gi
+
+gi.require_version("Gdk", "3.0")
+gi.require_version("Gtk", "3.0")
+from gi.repository import Gdk, Gio, GLib, Gtk
+
+import psutil
+
+
+APP_DIR = pathlib.Path.home() / ".config" / "underlight"
+CSS_FILE = APP_DIR / "widgets.css"
+
+
+class UnderlightWidgets(Gtk.Window):
+    def __init__(self):
+        super().__init__(title="Desktop widgets")
+        self.set_name("underlight-widgets")
+        self.set_decorated(False)
+        self.set_resizable(False)
+        self.set_app_paintable(True)
+
+        screen = self.get_screen()
+        visual = screen.get_rgba_visual() if screen else None
+        if visual:
+            self.set_visual(visual)
+
+        self._put_on_underlight_layer()
+        self._load_css()
+
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        root.set_size_request(286, -1)
+        self.add(root)
+
+        date_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        date_panel.get_style_context().add_class("panel")
+        date_panel.get_style_context().add_class("date-panel")
+        root.pack_start(date_panel, False, False, 0)
+
+        self.clock = Gtk.Label()
+        self.clock.set_xalign(0)
+        self.clock.get_style_context().add_class("clock")
+        date_panel.pack_start(self.clock, False, False, 0)
+
+        self.date = Gtk.Label()
+        self.date.set_xalign(0)
+        self.date.get_style_context().add_class("date")
+        date_panel.pack_start(self.date, False, False, 0)
+
+        date_panel.pack_start(self._rule(), False, False, 12)
+
+        self.month_title = Gtk.Label()
+        self.month_title.set_xalign(0)
+        self.month_title.get_style_context().add_class("section-title")
+        date_panel.pack_start(self.month_title, False, False, 0)
+
+        self.calendar_grid = Gtk.Grid(column_spacing=7, row_spacing=4)
+        self.calendar_grid.set_margin_top(8)
+        date_panel.pack_start(self.calendar_grid, False, False, 0)
+
+        self.media_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.media_panel.get_style_context().add_class("panel")
+        self.media_panel.get_style_context().add_class("media-panel")
+        self.media_panel.set_no_show_all(True)
+        root.pack_start(self.media_panel, False, False, 0)
+
+        media_head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        media_label = Gtk.Label(label="NOW PLAYING")
+        media_label.set_xalign(0)
+        media_label.get_style_context().add_class("section-title")
+        media_head.pack_start(media_label, True, True, 0)
+        self.media_state = Gtk.Label()
+        self.media_state.set_xalign(1)
+        self.media_state.get_style_context().add_class("path-hint")
+        media_head.pack_end(self.media_state, False, False, 0)
+        self.media_panel.pack_start(media_head, False, False, 0)
+
+        self.media_title = Gtk.Label()
+        self.media_title.set_xalign(0)
+        self.media_title.set_ellipsize(3)
+        self.media_title.get_style_context().add_class("media-title")
+        self.media_panel.pack_start(self.media_title, False, False, 7)
+
+        media_bottom = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        self.media_artist = Gtk.Label()
+        self.media_artist.set_xalign(0)
+        self.media_artist.set_ellipsize(3)
+        self.media_artist.get_style_context().add_class("media-artist")
+        media_bottom.pack_start(self.media_artist, True, True, 0)
+        for label, method in (("prev", "Previous"), ("play", "PlayPause"), ("next", "Next")):
+            button = Gtk.Button(label=label)
+            button.get_style_context().add_class("media-action")
+            button.connect("clicked", self._media_action, method)
+            media_bottom.pack_start(button, False, False, 0)
+        self.media_panel.pack_start(media_bottom, False, False, 0)
+
+        system_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        system_panel.get_style_context().add_class("panel")
+        system_panel.get_style_context().add_class("system-panel")
+        root.pack_start(system_panel, False, False, 0)
+
+        system_head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        system_title = Gtk.Label(label="SYSTEM")
+        system_title.set_xalign(0)
+        system_title.get_style_context().add_class("section-title")
+        system_head.pack_start(system_title, True, True, 0)
+        self.uptime = Gtk.Label()
+        self.uptime.set_xalign(1)
+        self.uptime.get_style_context().add_class("path-hint")
+        system_head.pack_end(self.uptime, False, False, 0)
+        system_panel.pack_start(system_head, False, False, 0)
+
+        self.cpu_value, self.cpu_bar = self._meter(system_panel, "CPU")
+        self.memory_value, self.memory_bar = self._meter(system_panel, "MEMORY")
+        self.storage_value, self.storage_bar = self._meter(system_panel, "STORAGE")
+        self.battery_value, self.battery_bar = self._meter(system_panel, "BATTERY")
+
+        drive_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        drive_panel.get_style_context().add_class("panel")
+        drive_panel.get_style_context().add_class("drive-panel")
+        root.pack_start(drive_panel, False, False, 0)
+
+        drive_head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        drive_title = Gtk.Label(label="REMOVABLE")
+        drive_title.set_xalign(0)
+        drive_title.get_style_context().add_class("section-title")
+        drive_head.pack_start(drive_title, True, True, 0)
+        hint = Gtk.Label(label="/media/chheng-lydia")
+        hint.set_xalign(1)
+        hint.get_style_context().add_class("path-hint")
+        drive_head.pack_end(hint, False, False, 0)
+        drive_panel.pack_start(drive_head, False, False, 0)
+
+        self.drives = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=7)
+        self.drives.set_margin_top(9)
+        drive_panel.pack_start(self.drives, False, False, 0)
+
+        self.status = Gtk.Label()
+        self.status.set_xalign(0)
+        self.status.set_line_wrap(True)
+        self.status.get_style_context().add_class("status")
+        drive_panel.pack_start(self.status, False, False, 0)
+
+        self._calendar_date = None
+        self._player_bus_name = None
+        self._last_drive_signature = None
+        self._update_clock()
+        self._update_system()
+        self._update_media()
+        self._update_drives(force=True)
+        GLib.timeout_add_seconds(1, self._update_clock)
+        GLib.timeout_add_seconds(2, self._update_system)
+        GLib.timeout_add_seconds(3, self._update_media)
+        GLib.timeout_add_seconds(3, self._update_drives)
+
+    def _put_on_underlight_layer(self):
+        """Use gtk-layer-shell through its C ABI; the typelib is not required."""
+        layer = ctypes.CDLL("libgtk-layer-shell.so.0")
+        pointer = ctypes.c_void_p(hash(self))
+        layer.gtk_layer_init_for_window.argtypes = [ctypes.c_void_p]
+        layer.gtk_layer_set_namespace.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+        layer.gtk_layer_set_layer.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        layer.gtk_layer_set_anchor.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_bool]
+        layer.gtk_layer_set_margin.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
+        layer.gtk_layer_set_exclusive_zone.argtypes = [ctypes.c_void_p, ctypes.c_int]
+
+        layer.gtk_layer_init_for_window(pointer)
+        layer.gtk_layer_set_namespace(pointer, b"underlight-widgets")
+        layer.gtk_layer_set_layer(pointer, 1)  # bottom: above wallpaper, below windows
+        layer.gtk_layer_set_anchor(pointer, 1, True)  # right
+        layer.gtk_layer_set_anchor(pointer, 3, True)  # bottom
+        layer.gtk_layer_set_margin(pointer, 1, 18)
+        layer.gtk_layer_set_margin(pointer, 3, 18)
+        layer.gtk_layer_set_exclusive_zone(pointer, 0)
+
+    def _load_css(self):
+        provider = Gtk.CssProvider()
+        provider.load_from_path(str(CSS_FILE))
+        Gtk.StyleContext.add_provider_for_screen(
+            self.get_screen(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
+
+    @staticmethod
+    def _rule():
+        rule = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        rule.get_style_context().add_class("rule")
+        return rule
+
+    @staticmethod
+    def _meter(parent, name):
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        row.set_margin_top(9)
+        label = Gtk.Label(label=name)
+        label.set_size_request(58, -1)
+        label.set_xalign(0)
+        label.get_style_context().add_class("meter-name")
+        row.pack_start(label, False, False, 0)
+
+        bar = Gtk.ProgressBar()
+        bar.set_hexpand(True)
+        bar.set_valign(Gtk.Align.CENTER)
+        row.pack_start(bar, True, True, 0)
+
+        value = Gtk.Label(label="--")
+        value.set_size_request(42, -1)
+        value.set_xalign(1)
+        value.get_style_context().add_class("meter-value")
+        row.pack_end(value, False, False, 0)
+        parent.pack_start(row, False, False, 0)
+        return value, bar
+
+    def _update_clock(self):
+        now = datetime.now()
+        self.clock.set_text(now.strftime("%H:%M"))
+        self.date.set_text(now.strftime("%A  ·  %d %B %Y"))
+        if now.date() != self._calendar_date:
+            self._calendar_date = now.date()
+            self._rebuild_calendar(now)
+        return True
+
+    def _rebuild_calendar(self, now):
+        for child in self.calendar_grid.get_children():
+            self.calendar_grid.remove(child)
+
+        self.month_title.set_text(now.strftime("%B %Y").upper())
+        for column, name in enumerate(("M", "T", "W", "T", "F", "S", "S")):
+            label = Gtk.Label(label=name)
+            label.get_style_context().add_class("calendar-weekday")
+            self.calendar_grid.attach(label, column, 0, 1, 1)
+
+        weeks = calendar.monthcalendar(now.year, now.month)
+        for row, week in enumerate(weeks, start=1):
+            for column, day in enumerate(week):
+                label = Gtk.Label(label=str(day) if day else "")
+                label.get_style_context().add_class("calendar-day")
+                if day == now.day:
+                    label.get_style_context().add_class("today")
+                self.calendar_grid.attach(label, column, row, 1, 1)
+        self.calendar_grid.show_all()
+
+    def _set_meter(self, value_label, bar, value, suffix="%"):
+        value = max(0.0, min(100.0, float(value)))
+        bar.set_fraction(value / 100.0)
+        value_label.set_text(f"{value:.0f}{suffix}")
+
+    def _update_system(self):
+        self._set_meter(self.cpu_value, self.cpu_bar, psutil.cpu_percent())
+        self._set_meter(self.memory_value, self.memory_bar, psutil.virtual_memory().percent)
+        self._set_meter(self.storage_value, self.storage_bar, psutil.disk_usage("/").percent)
+        uptime_seconds = max(0, int(time.time() - psutil.boot_time()))
+        days, remainder = divmod(uptime_seconds, 86400)
+        hours = remainder // 3600
+        self.uptime.set_text(f"up {days}d {hours}h" if days else f"up {hours}h")
+        battery = psutil.sensors_battery()
+        if battery:
+            self._set_meter(self.battery_value, self.battery_bar, battery.percent)
+            self.battery_bar.show()
+            self.battery_value.show()
+        else:
+            self.battery_value.set_text("AC")
+            self.battery_bar.set_fraction(1.0)
+        return True
+
+    @staticmethod
+    def _session_bus():
+        return Gio.bus_get_sync(Gio.BusType.SESSION, None)
+
+    def _media_properties(self):
+        bus = self._session_bus()
+        reply = bus.call_sync(
+            "org.freedesktop.DBus",
+            "/org/freedesktop/DBus",
+            "org.freedesktop.DBus",
+            "ListNames",
+            None,
+            GLib.VariantType.new("(as)"),
+            Gio.DBusCallFlags.NONE,
+            1000,
+            None,
+        )
+        players = sorted(
+            name for name in reply.unpack()[0] if name.startswith("org.mpris.MediaPlayer2.")
+        )
+        for player in players:
+            try:
+                props = bus.call_sync(
+                    player,
+                    "/org/mpris/MediaPlayer2",
+                    "org.freedesktop.DBus.Properties",
+                    "GetAll",
+                    GLib.Variant("(s)", ("org.mpris.MediaPlayer2.Player",)),
+                    GLib.VariantType.new("(a{sv})"),
+                    Gio.DBusCallFlags.NONE,
+                    1000,
+                    None,
+                ).unpack()[0]
+                metadata = props.get("Metadata", {})
+                title = metadata.get("xesam:title", "")
+                artists = metadata.get("xesam:artist", [])
+                if title:
+                    return player, props.get("PlaybackStatus", ""), title, ", ".join(artists)
+            except GLib.Error:
+                continue
+        return None
+
+    def _update_media(self):
+        try:
+            media = self._media_properties()
+        except GLib.Error:
+            media = None
+
+        if not media:
+            self._player_bus_name = None
+            self.media_panel.hide()
+            return True
+
+        self._player_bus_name, state, title, artist = media
+        self.media_state.set_text(state.lower())
+        self.media_title.set_text(title)
+        self.media_artist.set_text(artist or "Unknown artist")
+        self.media_panel.set_no_show_all(False)
+        self.media_panel.show_all()
+        return True
+
+    def _media_action(self, _button, method):
+        if not self._player_bus_name:
+            return
+        try:
+            self._session_bus().call_sync(
+                self._player_bus_name,
+                "/org/mpris/MediaPlayer2",
+                "org.mpris.MediaPlayer2.Player",
+                method,
+                None,
+                None,
+                Gio.DBusCallFlags.NONE,
+                1000,
+                None,
+            )
+        except GLib.Error:
+            pass
+
+    @staticmethod
+    def _walk_devices(nodes):
+        for node in nodes or []:
+            yield node
+            yield from UnderlightWidgets._walk_devices(node.get("children", []))
+
+    def _external_volumes(self):
+        fields = "NAME,PATH,TYPE,SIZE,FSTYPE,LABEL,MOUNTPOINTS,RM,TRAN,MODEL"
+        result = subprocess.run(
+            ["lsblk", "--json", "-o", fields],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=True,
+        )
+        roots = json.loads(result.stdout).get("blockdevices", [])
+        volumes = []
+        for disk in roots:
+            descendants = list(self._walk_devices([disk]))
+            mounts = [m for n in descendants for m in (n.get("mountpoints") or []) if m]
+            is_system = any(
+                m == "/" or m == "/home" or m.startswith("/boot") for m in mounts
+            )
+            external = bool(disk.get("rm")) or disk.get("tran") == "usb"
+            if not external or is_system:
+                continue
+            for node in descendants:
+                if not node.get("fstype") or node.get("type") == "disk":
+                    continue
+                mountpoint = next((m for m in (node.get("mountpoints") or []) if m), None)
+                volumes.append(
+                    {
+                        "path": node.get("path"),
+                        "name": node.get("label") or disk.get("model") or node.get("name"),
+                        "size": node.get("size") or "",
+                        "filesystem": node.get("fstype") or "",
+                        "mountpoint": mountpoint,
+                    }
+                )
+        return volumes
+
+    def _update_drives(self, force=False):
+        try:
+            volumes = self._external_volumes()
+        except (OSError, subprocess.SubprocessError, ValueError) as error:
+            self.status.set_text(f"Could not read drives: {error}")
+            return True
+
+        signature = json.dumps(volumes, sort_keys=True)
+        if not force and signature == self._last_drive_signature:
+            return True
+        self._last_drive_signature = signature
+
+        for child in self.drives.get_children():
+            self.drives.remove(child)
+
+        if not volumes:
+            empty = Gtk.Label(label="No removable drive connected")
+            empty.set_xalign(0)
+            empty.get_style_context().add_class("empty")
+            self.drives.pack_start(empty, False, False, 0)
+        else:
+            for volume in volumes:
+                self.drives.pack_start(self._drive_row(volume), False, False, 0)
+        self.drives.show_all()
+        return True
+
+    def _drive_row(self, volume):
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row.get_style_context().add_class("drive-row")
+
+        text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+        title = Gtk.Label(label=volume["name"])
+        title.set_xalign(0)
+        title.set_ellipsize(3)
+        title.get_style_context().add_class("drive-name")
+        text.pack_start(title, False, False, 0)
+
+        location = volume["mountpoint"] or f'{volume["size"]}  ·  {volume["filesystem"]}'
+        detail = Gtk.Label(label=location)
+        detail.set_xalign(0)
+        detail.set_ellipsize(1)
+        detail.set_max_width_chars(24)
+        detail.set_tooltip_text(location)
+        detail.get_style_context().add_class("drive-detail")
+        text.pack_start(detail, False, False, 0)
+        row.pack_start(text, True, True, 0)
+
+        button = Gtk.Button(label="open" if volume["mountpoint"] else "mount")
+        button.get_style_context().add_class("drive-action")
+        if volume["mountpoint"]:
+            button.connect("clicked", self._open_drive, volume["mountpoint"])
+        else:
+            button.connect("clicked", self._mount_drive, volume["path"])
+        row.pack_end(button, False, False, 0)
+        return row
+
+    def _open_drive(self, _button, mountpoint):
+        subprocess.Popen(
+            ["nautilus", "--new-window", mountpoint],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+    def _mount_drive(self, button, device):
+        button.set_sensitive(False)
+        button.set_label("mounting")
+        self.status.set_text("")
+        process = subprocess.Popen(
+            ["udisksctl", "mount", "-b", device],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        GLib.timeout_add(200, self._mount_finished, process)
+
+    def _mount_finished(self, process):
+        if process.poll() is None:
+            return True
+        output = process.stdout.read().decode(errors="replace").strip()
+        if process.returncode:
+            self.status.set_text(output or "The drive could not be mounted")
+        else:
+            self.status.set_text("")
+        self._update_drives(force=True)
+        return False
+
+
+def lock_single_instance():
+    lock_path = f"/tmp/underlight-widgets-{os.getuid()}.lock"
+    handle = open(lock_path, "w", encoding="utf-8")
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        raise SystemExit(0)
+    return handle
+
+
+if __name__ == "__main__":
+    instance_lock = lock_single_instance()
+    window = UnderlightWidgets()
+    window.connect("destroy", Gtk.main_quit)
+    window.show_all()
+    Gtk.main()
