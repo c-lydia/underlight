@@ -24,30 +24,26 @@ APP_DIR = pathlib.Path.home() / ".config" / "underlight"
 CSS_FILE = APP_DIR / "widgets.css"
 
 
-class UnderlightWidgets(Gtk.Window):
+class UnderlightWidgets:
     def __init__(self):
-        super().__init__(title="Desktop widgets")
-        self.set_name("underlight-widgets")
-        self.set_decorated(False)
-        self.set_resizable(False)
-        self.set_app_paintable(True)
-
-        screen = self.get_screen()
-        visual = screen.get_rgba_visual() if screen else None
-        if visual:
-            self.set_visual(visual)
-
-        self._put_on_underlight_layer()
+        self.windows = []
+        self._stack_top = 56
+        self._stack_gap = 10
+        self._restack_pending = False
+        self._media_visible = False
         self._load_css()
-
-        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        root.set_size_request(286, -1)
-        self.add(root)
 
         date_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         date_panel.get_style_context().add_class("panel")
         date_panel.get_style_context().add_class("date-panel")
-        root.pack_start(date_panel, False, False, 0)
+        self.date_window = self._new_window(
+            "underlight-date", date_panel, top=56, right=18
+        )
+
+        eyebrow = Gtk.Label(label="UNDERLIGHT")
+        eyebrow.set_xalign(0)
+        eyebrow.get_style_context().add_class("eyebrow")
+        date_panel.pack_start(eyebrow, False, False, 0)
 
         self.clock = Gtk.Label()
         self.clock.set_xalign(0)
@@ -73,8 +69,10 @@ class UnderlightWidgets(Gtk.Window):
         self.media_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.media_panel.get_style_context().add_class("panel")
         self.media_panel.get_style_context().add_class("media-panel")
-        self.media_panel.set_no_show_all(True)
-        root.pack_start(self.media_panel, False, False, 0)
+        self.media_window = self._new_window(
+            "underlight-media", self.media_panel, top=56, right=18
+        )
+        self.media_window.set_no_show_all(True)
 
         media_head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         media_label = Gtk.Label(label="NOW PLAYING")
@@ -109,7 +107,9 @@ class UnderlightWidgets(Gtk.Window):
         system_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         system_panel.get_style_context().add_class("panel")
         system_panel.get_style_context().add_class("system-panel")
-        root.pack_start(system_panel, False, False, 0)
+        self.system_window = self._new_window(
+            "underlight-system", system_panel, top=56, right=18
+        )
 
         system_head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         system_title = Gtk.Label(label="SYSTEM")
@@ -130,7 +130,9 @@ class UnderlightWidgets(Gtk.Window):
         drive_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         drive_panel.get_style_context().add_class("panel")
         drive_panel.get_style_context().add_class("drive-panel")
-        root.pack_start(drive_panel, False, False, 0)
+        self.drive_window = self._new_window(
+            "underlight-drives", drive_panel, top=56, right=18
+        )
 
         drive_head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         drive_title = Gtk.Label(label="REMOVABLE")
@@ -165,10 +167,69 @@ class UnderlightWidgets(Gtk.Window):
         GLib.timeout_add_seconds(3, self._update_media)
         GLib.timeout_add_seconds(3, self._update_drives)
 
-    def _put_on_underlight_layer(self):
+    def _new_window(self, namespace, content, top=None, right=None, bottom=None, left=None):
+        window = Gtk.Window(title="Underlight desktop widget")
+        window.set_name("underlight-widget")
+        window.set_decorated(False)
+        window.set_resizable(False)
+        window.set_app_paintable(True)
+
+        screen = window.get_screen()
+        visual = screen.get_rgba_visual() if screen else None
+        if visual:
+            window.set_visual(visual)
+
+        window.set_size_request(310, -1)
+        content.set_size_request(286, -1)
+        window.add(content)
+        self._put_on_underlight_layer(
+            window, namespace, top=top, right=right, bottom=bottom, left=left
+        )
+        window.connect("destroy", self._window_destroyed)
+        window.connect("size-allocate", self._queue_restack)
+        self.windows.append(window)
+        return window
+
+    @staticmethod
+    def _window_destroyed(_window):
+        Gtk.main_quit()
+
+    def show(self):
+        self.date_window.show_all()
+        self.system_window.show_all()
+        self.drive_window.show_all()
+        self._queue_restack()
+
+    def _queue_restack(self, *_args):
+        if not self._restack_pending:
+            self._restack_pending = True
+            GLib.idle_add(self._restack)
+
+    def _restack(self):
+        self._restack_pending = False
+        visible_windows = [self.date_window]
+        if self._media_visible:
+            visible_windows.append(self.media_window)
+        visible_windows.extend((self.system_window, self.drive_window))
+
+        top_margin = self._stack_top
+        for window in visible_windows:
+            self._set_layer_margin(window, 2, top_margin)  # top edge
+            height = max(window.get_allocated_height(), window.get_preferred_height()[0])
+            top_margin += height + self._stack_gap
+        return False
+
+    @staticmethod
+    def _set_layer_margin(window, edge, margin):
+        layer = ctypes.CDLL("libgtk-layer-shell.so.0")
+        layer.gtk_layer_set_margin.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
+        layer.gtk_layer_set_margin(ctypes.c_void_p(hash(window)), edge, margin)
+
+    @staticmethod
+    def _put_on_underlight_layer(window, namespace, top=None, right=None, bottom=None, left=None):
         """Use gtk-layer-shell through its C ABI; the typelib is not required."""
         layer = ctypes.CDLL("libgtk-layer-shell.so.0")
-        pointer = ctypes.c_void_p(hash(self))
+        pointer = ctypes.c_void_p(hash(window))
         layer.gtk_layer_init_for_window.argtypes = [ctypes.c_void_p]
         layer.gtk_layer_set_namespace.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
         layer.gtk_layer_set_layer.argtypes = [ctypes.c_void_p, ctypes.c_int]
@@ -177,19 +238,22 @@ class UnderlightWidgets(Gtk.Window):
         layer.gtk_layer_set_exclusive_zone.argtypes = [ctypes.c_void_p, ctypes.c_int]
 
         layer.gtk_layer_init_for_window(pointer)
-        layer.gtk_layer_set_namespace(pointer, b"underlight-widgets")
+        layer.gtk_layer_set_namespace(pointer, namespace.encode())
         layer.gtk_layer_set_layer(pointer, 1)  # bottom: above wallpaper, below windows
-        layer.gtk_layer_set_anchor(pointer, 1, True)  # right
-        layer.gtk_layer_set_anchor(pointer, 3, True)  # bottom
-        layer.gtk_layer_set_margin(pointer, 1, 18)
-        layer.gtk_layer_set_margin(pointer, 3, 18)
+        # gtk-layer-shell orders its edges as left, right, top, bottom.
+        for edge, margin in ((2, top), (1, right), (3, bottom), (0, left)):
+            if margin is not None:
+                layer.gtk_layer_set_anchor(pointer, edge, True)
+                layer.gtk_layer_set_margin(pointer, edge, margin)
         layer.gtk_layer_set_exclusive_zone(pointer, 0)
 
-    def _load_css(self):
+    @staticmethod
+    def _load_css():
         provider = Gtk.CssProvider()
         provider.load_from_path(str(CSS_FILE))
+        screen = Gdk.Screen.get_default()
         Gtk.StyleContext.add_provider_for_screen(
-            self.get_screen(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+            screen, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
 
     @staticmethod
@@ -323,15 +387,22 @@ class UnderlightWidgets(Gtk.Window):
 
         if not media:
             self._player_bus_name = None
-            self.media_panel.hide()
+            was_visible = self._media_visible
+            self._media_visible = False
+            self.media_window.hide()
+            self.media_window.set_no_show_all(True)
+            if was_visible:
+                self._queue_restack()
             return True
 
         self._player_bus_name, state, title, artist = media
         self.media_state.set_text(state.lower())
         self.media_title.set_text(title)
         self.media_artist.set_text(artist or "Unknown artist")
-        self.media_panel.set_no_show_all(False)
-        self.media_panel.show_all()
+        self._media_visible = True
+        self.media_window.set_no_show_all(False)
+        self.media_window.show_all()
+        self._queue_restack()
         return True
 
     def _media_action(self, _button, method):
@@ -491,7 +562,6 @@ def lock_single_instance():
 
 if __name__ == "__main__":
     instance_lock = lock_single_instance()
-    window = UnderlightWidgets()
-    window.connect("destroy", Gtk.main_quit)
-    window.show_all()
+    widgets = UnderlightWidgets()
+    widgets.show()
     Gtk.main()
