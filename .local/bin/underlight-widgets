@@ -72,7 +72,6 @@ class UnderlightWidgets:
         self.media_window = self._new_window(
             "underlight-media", self.media_panel, top=56, right=18
         )
-        self.media_window.set_no_show_all(True)
 
         media_head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         media_label = Gtk.Label(label="NOW PLAYING")
@@ -390,7 +389,6 @@ class UnderlightWidgets:
             was_visible = self._media_visible
             self._media_visible = False
             self.media_window.hide()
-            self.media_window.set_no_show_all(True)
             if was_visible:
                 self._queue_restack()
             return True
@@ -400,7 +398,6 @@ class UnderlightWidgets:
         self.media_title.set_text(title)
         self.media_artist.set_text(artist or "Unknown artist")
         self._media_visible = True
-        self.media_window.set_no_show_all(False)
         self.media_window.show_all()
         self._queue_restack()
         return True

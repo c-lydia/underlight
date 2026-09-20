@@ -35,3 +35,14 @@ widgets with:
 ```bash
 ~/.local/bin/underlight-widgets-toggle restart
 ```
+
+## Background applications
+
+Launch any command independently from the terminal with:
+
+```bash
+underlight-background COMMAND [ARGUMENT ...]
+```
+
+To start applications automatically at login, add `exec-once` entries to
+`~/.config/hypr/underlight/background-apps.conf`.

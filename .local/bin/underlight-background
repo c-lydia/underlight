@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if (( $# == 0 )); then
+  printf 'Usage: underlight-background COMMAND [ARGUMENT ...]\n' >&2
+  exit 2
+fi
+
+command_name=$(basename -- "$1" | tr -c '[:alnum:]_.-' '-')
+unit_name="underlight-${command_name}-${RANDOM}"
+
+systemd-run \
+  --user \
+  --quiet \
+  --collect \
+  --property=Type=exec \
+  --unit="$unit_name" \
+  -- \
+  "$@"
+
+printf 'Started %s in the background as %s.service\n' "$1" "$unit_name"
+

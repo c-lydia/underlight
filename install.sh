@@ -38,6 +38,7 @@ link_item .config/hypr/underlight
 link_item .config/waybar/config.jsonc
 link_item .config/waybar/style.css
 link_item .config/underlight/widgets.css
+link_item .local/bin/underlight-background
 link_item .local/bin/underlight-clipboard
 link_item .local/bin/underlight-install-extras
 link_item .local/bin/underlight-menu
@@ -51,4 +52,3 @@ link_item .local/bin/underlight-window-mode
 if [[ $backup_used == true ]]; then
   printf '\nPrevious files were preserved in %s\n' "$backup_dir"
 fi
-
