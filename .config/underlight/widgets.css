@@ -4,6 +4,7 @@
 
 window#underlight-widget {
   background: transparent;
+  border-radius: 14px;
 }
 
 .panel {
@@ -58,21 +59,15 @@ window#underlight-widget {
   padding-top: 14px;
 }
 
-.eyebrow,
-.section-title {
+.eyebrow {
   color: #48cae4;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 1.5px;
   text-shadow: 0 0 10px rgba(72, 202, 228, 0.6), 0 2px 4px rgba(5, 6, 12, 0.8);
-}
-
-.eyebrow {
-  background: linear-gradient(90deg, transparent 0%, rgba(72, 202, 228, 0.08) 50%, transparent 100%);
-  padding: 4px 12px 6px;
-  margin: -17px -18px 8px;
-  border-radius: 14px 14px 0 0;
-  border-bottom: 1px solid rgba(72, 202, 228, 0.15);
+  background: linear-gradient(90deg, transparent 0%, rgba(72, 202, 228, 0.06) 50%, transparent 100%);
+  padding: 2px 0 4px;
+  border-bottom: 1px solid rgba(72, 202, 228, 0.12);
 }
 
 .clock {

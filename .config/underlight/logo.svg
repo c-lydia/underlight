@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Outer glow ring -->
+  <circle cx="32" cy="32" r="28" fill="none" stroke="url(#ringGradient)" stroke-width="2.5" opacity="0.9">
+    <animateTransform attributeName="transform" type="rotate" from="0 32 32" to="360 32 32" dur="8s" repeatCount="indefinite"/>
+  </circle>
+  
+  <!-- Inner pulse ring -->
+  <circle cx="32" cy="32" r="20" fill="none" stroke="#48cae4" stroke-width="1.5" opacity="0.5">
+    <animate attributeName="r" values="16;22;16" dur="3s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0.3;0.6;0.3" dur="3s" repeatCount="indefinite"/>
+  </circle>
+  
+  <!-- Core dot -->
+  <circle cx="32" cy="32" r="6" fill="url(#coreGradient)">
+    <animate attributeName="r" values="5;7;5" dur="2s" repeatCount="indefinite"/>
+  </circle>
+  
+  <!-- Accent arc -->
+  <path d="M32 8a24 24 0 0 1 17 41" fill="none" stroke="url(#accentGradient)" stroke-width="2.5" stroke-linecap="round" opacity="0.8">
+    <animateTransform attributeName="transform" type="rotate" from="0 32 32" to="360 32 32" dur="6s" repeatCount="indefinite"/>
+  </path>
+  
+  <defs>
+    <linearGradient id="ringGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#48cae4"/>
+      <stop offset="33%" stop-color="#7c4dff"/>
+      <stop offset="66%" stop-color="#e052a0"/>
+      <stop offset="100%" stop-color="#48cae4"/>
+    </linearGradient>
+    
+    <radialGradient id="coreGradient" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#48cae4"/>
+      <stop offset="50%" stop-color="#7c4dff"/>
+      <stop offset="100%" stop-color="#e052a0"/>
+    </radialGradient>
+    
+    <linearGradient id="accentGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#e052a0" stop-opacity="0"/>
+      <stop offset="50%" stop-color="#48cae4" stop-opacity="1"/>
+      <stop offset="100%" stop-color="#7c4dff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+</svg>
