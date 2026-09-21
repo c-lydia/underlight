@@ -1,0 +1,164 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly shortcut='Super+Alt+W'
+readonly state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/nvim-workspace"
+readonly project_file="$state_dir/project"
+
+usage() {
+  printf '%s\n' \
+    'Usage: nvim-workspace [DIRECTORY] [OPTIONS]' \
+    '' \
+    'Select a project and open the four-window underlight workspace:' \
+    '  top-left      Neovim code IDE' \
+    '  bottom-left   Neovim terminal IDE' \
+    '  top-right     Firefox' \
+    '  bottom-right  Codex' \
+    '' \
+    'Options:' \
+    '  --set-only          Remember DIRECTORY without opening windows' \
+    '  --gui APP           Also open a native GUI executable or underlight ID' \
+    '  --flatpak APP_ID    Also open a Flatpak application' \
+    '  -h, --help          Show this help' \
+    '' \
+    "Press $shortcut to open/reuse and tile the remembered workspace."
+}
+
+workspace_dir=''
+if [[ $# -gt 0 && $1 != --* ]]; then
+  workspace_dir=$1
+  shift
+fi
+
+open_windows=true
+gui_apps=()
+flatpak_apps=()
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --set-only)
+      open_windows=false
+      ;;
+    --gui)
+      shift
+      if [[ $# -eq 0 ]]; then
+        printf 'nvim-workspace: --gui requires an app ID or executable\n' >&2
+        exit 2
+      fi
+      gui_apps+=("$1")
+      ;;
+    --flatpak)
+      shift
+      if [[ $# -eq 0 ]]; then
+        printf 'nvim-workspace: --flatpak requires an application ID\n' >&2
+        exit 2
+      fi
+      flatpak_apps+=("$1")
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf 'nvim-workspace: unknown option: %s\n' "$1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
+
+if [[ -z $workspace_dir ]]; then
+  workspace_dir=$PWD
+fi
+
+if [[ ! -d $workspace_dir ]]; then
+  printf 'nvim-workspace: not a directory: %s\n' "$workspace_dir" >&2
+  exit 2
+fi
+workspace_dir=$(realpath "$workspace_dir")
+
+if [[ ${#flatpak_apps[@]} -gt 0 ]] && ! command -v flatpak >/dev/null 2>&1; then
+  printf 'nvim-workspace: flatpak is not installed\n' >&2
+  exit 1
+fi
+
+mkdir -p "$state_dir"
+project_tmp=$(mktemp "$state_dir/project.XXXXXX")
+trap 'rm -f "$project_tmp"' EXIT
+printf '%s\n' "$workspace_dir" >"$project_tmp"
+mv -f "$project_tmp" "$project_file"
+trap - EXIT
+
+if ! $open_windows; then
+  printf 'Remembered workspace: %s\nPress %s to open and tile it.\n' "$workspace_dir" "$shortcut"
+  exit 0
+fi
+
+if [[ ${XDG_CURRENT_DESKTOP:-} == *Hyprland* ]]; then
+  command -v kitty >/dev/null 2>&1 || {
+    printf 'nvim-workspace: kitty is required under Hyprland\n' >&2
+    exit 1
+  }
+  nvim_path=$(command -v -- "${NVIM_BIN:-nvim}") || {
+    printf 'nvim-workspace: Neovim executable not found: %s\n' "${NVIM_BIN:-nvim}" >&2
+    exit 1
+  }
+
+  kitty --detach --class io.github.chhenglydia.NvimCode --title 'Neovim Code' \
+    --directory "$workspace_dir" "$nvim_path"
+  kitty --detach --class io.github.chhenglydia.NvimTerminal --title 'Neovim Terminal' \
+    --directory "$workspace_dir" "$nvim_path" -c terminal -c startinsert
+  if codex_path=$(command -v codex); then
+    kitty --detach --class io.github.chhenglydia.Codex --title Codex \
+      --directory "$workspace_dir" "$codex_path"
+  else
+    kitty --detach --class io.github.chhenglydia.ProjectShell --title 'Project Shell' \
+      --directory "$workspace_dir" "${SHELL:-/bin/bash}" -i
+  fi
+  if command -v firefox >/dev/null 2>&1; then
+    firefox --new-window about:blank >/dev/null 2>&1 &
+  fi
+
+  for gui_app in "${gui_apps[@]}"; do
+    if command -v "$gui_app" >/dev/null 2>&1; then
+      setsid "$gui_app" >/dev/null 2>&1 &
+    elif command -v gtk-launch >/dev/null 2>&1; then
+      gtk-launch "$gui_app" >/dev/null 2>&1 &
+    fi
+  done
+  for flatpak_app in "${flatpak_apps[@]}"; do
+    flatpak run "$flatpak_app" >/dev/null 2>&1 &
+  done
+
+  printf 'Opened kitty workspace for %s\n' "$workspace_dir"
+  exit 0
+fi
+
+if ! command -v gtk-launch >/dev/null 2>&1; then
+  printf 'nvim-workspace: gtk-launch is required\n' >&2
+  exit 1
+fi
+
+launch_underlight() {
+  gtk-launch "$1" >/dev/null 2>&1 &
+}
+
+launch_underlight io.github.chhenglydia.NvimCode
+launch_underlight io.github.chhenglydia.NvimTerminal
+launch_underlight io.github.chhenglydia.Codex
+launch_underlight firefox_firefox
+
+for gui_app in "${gui_apps[@]}"; do
+  if command -v "$gui_app" >/dev/null 2>&1; then
+    setsid "$gui_app" >/dev/null 2>&1 &
+  else
+    launch_underlight "$gui_app"
+  fi
+done
+
+for flatpak_app in "${flatpak_apps[@]}"; do
+  flatpak run "$flatpak_app" >/dev/null 2>&1 &
+done
+
+printf 'Opened workspace for %s\nPress %s to snap every window into place.\n' \
+  "$workspace_dir" "$shortcut"

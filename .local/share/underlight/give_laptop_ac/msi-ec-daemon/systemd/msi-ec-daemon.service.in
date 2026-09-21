@@ -1,0 +1,26 @@
+[Unit]
+Description=MSI EC control service
+After=dbus.service systemd-modules-load.service
+Requires=dbus.service
+
+[Service]
+Type=dbus
+BusName=com.msi_ec.FanControl
+ExecStart=@CMAKE_INSTALL_PREFIX@/bin/msi-ec-daemon
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=-/sys/devices/platform/msi-ec
+ReadWritePaths=-/sys/kernel/debug/ec
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+
+[Install]
+WantedBy=multi-user.target

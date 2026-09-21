@@ -23,7 +23,7 @@
   "custom/launcher": {
     "format": "",
     "tooltip-format": "Apps",
-    "on-click": "/home/chheng-lydia/.local/bin/underlight-menu"
+    "on-click": "~/.local/bin/underlight-menu"
   },
   "hyprland/workspaces": {
     "format": "{icon}",
@@ -47,7 +47,7 @@
     "on-scroll-down": "hyprctl dispatch workspace e-1"
   },
   "custom/windowmode": {
-    "exec": "/home/chheng-lydia/.local/bin/underlight-window-mode",
+    "exec": "~/.local/bin/underlight-window-mode",
     "return-type": "json",
     "interval": 1,
     "on-click": "hyprctl dispatch togglefloating"
@@ -66,7 +66,7 @@
   "custom/widgets": {
     "format": "",
     "tooltip-format": "Underlight widgets\nClick to show or hide",
-    "on-click": "/home/chheng-lydia/.local/bin/underlight-widgets-toggle"
+    "on-click": "~/.local/bin/underlight-widgets-toggle"
   },
   "network": {
     "interval": 2,
@@ -92,15 +92,15 @@
     "states": { "warning": 80, "critical": 92 }
   },
   "custom/gpu": {
-    "exec": "/home/chheng-lydia/.local/bin/underlight-sensor gpu",
+    "exec": "~/.local/bin/underlight-sensor gpu",
     "return-type": "json",
     "interval": 3,
-    "on-click": "/home/chheng-lydia/.local/bin/underlight-gpu-menu",
-    "on-click-middle": "/home/chheng-lydia/.local/bin/underlight-laptop",
-    "on-click-right": "/home/chheng-lydia/.local/bin/underlight-doctor --terminal"
+    "on-click": "~/.local/bin/underlight-gpu-menu",
+    "on-click-middle": "~/.local/bin/underlight-laptop",
+    "on-click-right": "~/.local/bin/underlight-doctor --terminal"
   },
   "custom/fan": {
-    "exec": "/home/chheng-lydia/.local/bin/underlight-sensor fan",
+    "exec": "~/.local/bin/underlight-sensor fan",
     "return-type": "json",
     "interval": 3
   },
@@ -127,6 +127,6 @@
   "custom/power": {
     "format": "",
     "tooltip-format": "Session & power",
-    "on-click": "/home/chheng-lydia/.local/bin/underlight-power"
+    "on-click": "~/.local/bin/underlight-power"
   }
 }

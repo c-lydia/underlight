@@ -1,0 +1,5 @@
+textual>=6,<9
+psutil>=6
+nvidia-ml-py>=13.580
+pydantic>=2,<3
+PyYAML>=6

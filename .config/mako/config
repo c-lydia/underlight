@@ -1,0 +1,19 @@
+font=Ubuntu Sans 11
+background-color=#1a1b26d9
+text-color=#c0caf5ff
+border-color=#7aa2f7cc
+progress-color=over #414868aa
+border-size=2
+border-radius=12
+padding=14
+margin=10
+width=360
+height=120
+default-timeout=6000
+ignore-timeout=0
+layer=overlay
+anchor=top-right
+
+[urgency=high]
+border-color=#f7768eff
+default-timeout=0

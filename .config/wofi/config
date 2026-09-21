@@ -1,0 +1,13 @@
+show=drun
+width=600
+height=420
+location=center
+allow_images=true
+insensitive=true
+matching=fuzzy
+sort_order=default
+gtk_dark=true
+hide_scroll=true
+no_actions=true
+term=kitty
+prompt=Search apps

@@ -1,0 +1,44 @@
+{
+  "presets": [
+    {
+      "name": "default",
+      "description": "Balanced default curve",
+      "points": [
+        [30, 0], [35, 15], [40, 25], [45, 35], [50, 45],
+        [55, 55], [60, 65], [65, 75], [70, 85], [75, 100]
+      ]
+    },
+    {
+      "name": "performance",
+      "description": "Aggressive cooling for gaming",
+      "points": [
+        [30, 20], [35, 30], [40, 40], [45, 50], [50, 60],
+        [55, 70], [60, 80], [65, 90], [70, 100], [75, 100]
+      ]
+    },
+    {
+      "name": "silent",
+      "description": "Quiet operation, higher temps allowed",
+      "points": [
+        [30, 0], [40, 0], [45, 10], [50, 20], [55, 30],
+        [60, 40], [65, 50], [70, 60], [75, 70], [80, 100]
+      ]
+    },
+    {
+      "name": "balanced",
+      "description": "Good balance of noise and cooling",
+      "points": [
+        [30, 0], [35, 10], [40, 20], [45, 30], [50, 40],
+        [55, 50], [60, 60], [65, 70], [70, 80], [75, 90]
+      ]
+    },
+    {
+      "name": "max_cooling",
+      "description": "Maximum fan speed at all times",
+      "points": [
+        [30, 60], [35, 70], [40, 80], [45, 90], [50, 100],
+        [55, 100], [60, 100], [65, 100], [70, 100], [75, 100]
+      ]
+    }
+  ]
+}

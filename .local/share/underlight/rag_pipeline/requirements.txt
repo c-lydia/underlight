@@ -1,0 +1,12 @@
+sentence-transformers>=2.2.0
+lancedb>=0.16.0
+pyyaml>=6.0
+pillow>=10.0.0
+pytesseract>=0.3.10
+easyocr>=1.7.0
+opencv-python-headless>=4.8
+requests>=2.31.0
+tqdm>=4.66.0
+pymupdf>=1.23.0
+tree-sitter>=0.21.0
+tree-sitter-python>=0.21.0

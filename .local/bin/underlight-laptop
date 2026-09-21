@@ -2,12 +2,20 @@
 
 set -euo pipefail
 
-project=${GIVE_LAPTOP_AC_HOME:-"${HOME:?}/projects/give_laptop_ac"}
+if [[ -n ${GIVE_LAPTOP_AC_HOME:-} ]]; then
+  project=$GIVE_LAPTOP_AC_HOME
+elif [[ -f ${HOME:?}/projects/give_laptop_ac/main.py ]]; then
+  project=$HOME/projects/give_laptop_ac
+else
+  project="$HOME/.local/share/underlight/give_laptop_ac"
+fi
 main="$project/main.py"
 [[ -f $main ]] || { printf 'underlight-laptop: project not found: %s\n' "$project" >&2; exit 1; }
 
 if [[ -x $project/.venv/bin/python ]]; then
   python="$project/.venv/bin/python"
+elif [[ -x $HOME/.local/share/underlight/venvs/give_laptop_ac/bin/python ]]; then
+  python="$HOME/.local/share/underlight/venvs/give_laptop_ac/bin/python"
 elif command -v python3 >/dev/null 2>&1; then
   python=$(command -v python3)
 else

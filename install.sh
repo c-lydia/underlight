@@ -77,10 +77,17 @@ link_item() {
 }
 
 link_item .config/hypr/hyprland.conf
+link_item .config/nvim/after/plugin/underlight-transparent.lua
+link_item .config/kitty/kitty.conf
 link_item .config/hypr/underlight
 link_item .config/waybar/config.jsonc
 link_item .config/waybar/style.css
+link_item .config/wofi/config
+link_item .config/wofi/style.css
+link_item .config/mako/config
+link_item .config/underlight/logo.svg
 link_item .config/underlight/widgets.css
+link_item .local/share/underlight/give_laptop_ac
 link_item .local/bin/underlight-ai
 link_item .local/bin/underlight-background
 link_item .local/bin/underlight-clipboard
@@ -92,6 +99,8 @@ link_item .local/bin/underlight-health-notify
 link_item .local/bin/underlight-install-extras
 link_item .local/bin/underlight-laptop
 link_item .local/bin/underlight-menu
+link_item .local/bin/underlight-minimize
+link_item .local/bin/underlight-rag
 link_item .local/bin/underlight-profile
 link_item .local/bin/underlight-power
 link_item .local/bin/underlight-sensor
@@ -99,6 +108,11 @@ link_item .local/bin/underlight-shot
 link_item .local/bin/underlight-widgets
 link_item .local/bin/underlight-widgets-toggle
 link_item .local/bin/underlight-window-mode
+link_item .local/bin/nvim-workspace
+
+if [[ ${UNDERLIGHT_WITH_RAG:-0} == 1 ]]; then
+  link_item .local/share/underlight/rag_pipeline
+fi
 
 if ((${#changed_items[@]} > 0)); then
   mkdir -p -- "$backup_dir"

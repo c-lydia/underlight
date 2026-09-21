@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+data_root="${HOME:?}/.local/share/underlight"
+config_root="${XDG_CONFIG_HOME:-$HOME/.config}/underlight"
+project="$data_root/rag_pipeline"
+python="$data_root/venvs/rag_pipeline/bin/python"
+export RAG_CONFIG="${RAG_CONFIG:-$config_root/rag.yaml}"
+
+usage() {
+  printf '%s\n' \
+    'Usage: underlight-rag ask|direct|chat|index|server|opencode [ARGUMENT ...]' \
+    '' \
+    'The RAG component is optional. Install it on EndeavourOS with:' \
+    '  ./install-endeavouros.sh --with-rag'
+}
+
+[[ -d $project && -x $python && -f $RAG_CONFIG ]] || {
+  printf 'underlight-rag: optional RAG component is not installed or configured.\n' >&2
+  usage >&2
+  exit 1
+}
+
+mode=${1:-}
+[[ $# -eq 0 ]] || shift
+case $mode in
+  ask) exec "$python" "$project/assistant.py" answer "$@" ;;
+  direct) exec "$python" "$project/assistant.py" ask "$@" ;;
+  chat) exec "$python" "$project/chat_tracker.py" "$@" ;;
+  index) exec "$python" "$project/indexer.py" "$@" ;;
+  server) exec "$python" "$project/rag_server.py" "$@" ;;
+  opencode) exec env PATH="$(dirname -- "$python"):$PATH" bash "$project/run_opencode.sh" "$@" ;;
+  -h|--help|'') usage ;;
+  *) printf 'underlight-rag: unknown command: %s\n' "$mode" >&2; usage >&2; exit 2 ;;
+esac

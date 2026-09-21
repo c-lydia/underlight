@@ -91,7 +91,18 @@ if ros_setup=$(find /opt/ros -mindepth 2 -maxdepth 2 -name setup.bash -print -qu
 else
   result WARN 'ROS 2' 'no /opt/ros/*/setup.bash found'
 fi
-if [[ -f $HOME/projects/give_laptop_ac/main.py ]]; then result PASS 'give_laptop_ac' 'present'; else result WARN 'give_laptop_ac' 'project missing'; fi
+if [[ -f $HOME/projects/give_laptop_ac/main.py ]]; then
+  result PASS 'give_laptop_ac' 'working copy present'
+elif [[ -f $HOME/.local/share/underlight/give_laptop_ac/main.py ]]; then
+  result PASS 'give_laptop_ac' 'bundled copy present'
+else
+  result WARN 'give_laptop_ac' 'project missing'
+fi
+if [[ -x $HOME/.local/share/underlight/venvs/rag_pipeline/bin/python ]]; then
+  result PASS 'RAG pipeline' 'optional component installed'
+else
+  result WARN 'RAG pipeline' 'optional component not installed'
+fi
 
 printf '\nSummary: %d passed, %d warning(s), %d failure(s)\n' "$pass" "$warn" "$fail"
 (( fail == 0 ))

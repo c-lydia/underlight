@@ -1,0 +1,268 @@
+# Underlight RAG config. $HOME and ~ are expanded when this file is loaded.
+
+# ---------------------------------------------------------------------------
+# Where your stuff lives (EDIT THESE)
+# ---------------------------------------------------------------------------
+projects:
+  # Main code/projects dir — indexed fully
+  root: $HOME/projects
+
+  # Subdirs inside projects/ to include (globs relative to root).
+  # Leave empty to index everything under root.
+  include:
+    - "*"
+
+  # Subdirs to SKIP (e.g. huge data dirs, node_modules, .git, build output)
+  exclude:
+    - "node_modules"
+    - ".git"
+    - "__pycache__"
+    - "build"
+    - "dist"
+    - "venv"
+    - ".venv"
+    - "*.egg-info"
+
+  # File extensions to INDEX from projects/ (others skipped)
+  extensions:
+    - ".py"
+    - ".cpp"
+    - ".c"
+    - ".h"
+    - ".hpp"
+    - ".js"
+    - ".ts"
+    - ".go"
+    - ".rs"
+    - ".java"
+    - ".md"
+    - ".txt"
+    - ".yaml"
+    - ".yml"
+    - ".toml"
+    - ".json"
+    - ".xml"
+    - ".kicad_pcb"
+    - ".kicad_sch"
+    - ".kicad_pro"
+    - ".kicad_sym"
+    - ".kicad_drill"
+    - ".kicad_lambda"
+
+# ---------------------------------------------------------------------------
+# Downloads — second index pass. Same shape as projects.
+# Set skip_ocr: true to skip image OCR on first run (slow) and add later.
+# ---------------------------------------------------------------------------
+downloads:
+  root: $HOME/Downloads
+
+  include:
+    - "*"
+
+  exclude:
+    - "docker"
+    - "torrents"
+    - ".unpack"
+
+  extensions:
+    - ".pdf"
+    - ".md"
+    - ".txt"
+    - ".py"
+    - ".cpp"
+    - ".c"
+    - ".h"
+    - ".js"
+    - ".ts"
+    - ".png"
+    - ".jpg"
+    - ".jpeg"
+    - ".webp"
+    - ".bmp"
+
+  # OCR settings for images in Downloads
+  ocr:
+    enabled: false                # enable after installing/configuring an OCR engine
+    engine: "easyocr"            # "tesseract" (CPU) or "easyocr" (GPU)
+    gpu: false                   # set true only after CUDA is working
+    gpu_device: 0               # CUDA device id
+    min_image_mb: 0.01          # skip images smaller than this (noise)
+    max_image_mb: 25            # skip huge images (probably not docs)
+    languages:
+      - "en"                    # EasyOCR lang codes; add "th" if you read Thai
+    # EasyOCR loads a CUDA model per call — keep this modest so qwen keeps VRAM
+    batch_size: 4
+    # For Tesseract (CPU fallback):
+    tesseract:
+      lang: "eng"
+
+# ---------------------------------------------------------------------------
+# Home dirs — second index pass (kicad-libraries, Arduino, esp, Postman, etc.)
+# Set skip_ocr: true to skip image OCR on first run (slow) and add later.
+# ---------------------------------------------------------------------------
+home:
+  root: $HOME
+
+  include:
+    - "*"
+
+  exclude:
+    - "projects"
+    - "Downloads"
+    - "rag_pipeline"
+    - "rag_pipeline_extracted"
+    - ".cache"
+    - ".local"
+    - ".config"
+    - ".ssh"
+    - ".gnupg"
+    - ".docker"
+    - ".keras"
+    - ".stfolder"
+    - ".stversions"
+    - ".Trash"
+    - ".vagrant"
+    - ".ansible"
+    - ".kube"
+    - "snap"
+    - "snap-private-tmp"
+    - "narrow"
+    - "narrow-projects"
+
+  extensions:
+    - ".py"
+    - ".cpp"
+    - ".c"
+    - ".h"
+    - ".hpp"
+    - ".js"
+    - ".ts"
+    - ".go"
+    - ".rs"
+    - ".java"
+    - ".md"
+    - ".txt"
+    - ".yaml"
+    - ".yml"
+    - ".toml"
+    - ".json"
+    - ".xml"
+    - ".kicad_pcb"
+    - ".kicad_sch"
+    - ".kicad_pro"
+    - ".kicad_sym"
+    - ".kicad_drill"
+    - ".kicad_lambda"
+    - ".ino"
+    - ".pde"
+    - ".pdf"
+    - ".png"
+    - ".jpg"
+    - ".jpeg"
+    - ".webp"
+    - ".bmp"
+
+  ocr:
+    enabled: false
+    engine: "easyocr"
+    gpu: false
+    gpu_device: 0
+    min_image_mb: 0.01
+    max_image_mb: 25
+    languages:
+      - "en"
+    batch_size: 4
+    tesseract:
+      lang: "eng"
+
+# ---------------------------------------------------------------------------
+# Chunking
+# ---------------------------------------------------------------------------
+chunking:
+  # Code: split by function/class defs when possible, else line chunks
+  code:
+    strategy: "def_boundary"    # "def_boundary" | "line" | "token"
+    max_tokens: 512             # fallback line-chunk size
+    overlap_tokens: 64
+
+  # Text / Markdown / JSON / YAML / KiCad s-expr
+  text:
+    max_tokens: 512
+    overlap_tokens: 64
+
+  # PDF: one chunk per page (pyPDF/pymupdf page-level)
+  pdf:
+    per_page: true
+
+  # KiCad s-expression files: chunk by top-level sexpr blocks
+  kicad:
+    strategy: "block"           # split by top-level (... ) blocks
+
+# ---------------------------------------------------------------------------
+# Embedder — CPU (saves VRAM for qwen). MiniLM L6 is fast + light.
+# ---------------------------------------------------------------------------
+embedder:
+  model: "sentence-transformers/all-MiniLM-L6-v2"
+  device: "cpu"                # "cuda" also works but saves VRAM to leave on CPU
+  batch_size: 64               # CPU embedding batch
+
+  # ALTERNATIVE: use Ollama embed model instead (comment above, uncomment below)
+  # model: "nomic-embed-text"
+  # device: "ollama"
+  # ollama_base_url: "http://localhost:11434"
+
+# ---------------------------------------------------------------------------
+# Vector store — file-based, no server. Stored under store_dir.
+# ---------------------------------------------------------------------------
+store:
+  dir: $HOME/.local/share/underlight/rag-store
+  # One table per source for independent re-indexing
+  tables:
+    projects: "idx_projects"
+    downloads: "idx_downloads"
+    home: "idx_home"
+    chat: "idx_chat"
+
+# ---------------------------------------------------------------------------
+# Ollama — the LLM that answers
+# ---------------------------------------------------------------------------
+ollama:
+  base_url: "http://localhost:11434"
+  model: "qwen3:4b"
+  # Ollama pulls q4_K_M by default for 4b models on 4GB VRAM — fits RTX 3050.
+  # Explicitly pin if you've pulled a specific quant:
+  # model: "qwen3:4b-q4_K_M"
+  timeout_s: 120
+  # Context budget for the assistant prompt (tokens — not strict, Ollama handles)
+  max_context_tokens: 4096
+  # How many retrieved chunks to feed the model
+  retrieval:
+    top_k: 6
+    # Score threshold — drop low-confidence chunks
+    min_score: 0.25
+
+# ---------------------------------------------------------------------------
+# Chat tracker
+# ---------------------------------------------------------------------------
+chat:
+  # Where chat logs live (JSONL). Created if missing.
+  log_dir: $HOME/.local/state/underlight/rag-chatlogs
+  # A "project" tag groups conversations. You can have several.
+  default_project: "default"
+  # Auto-log every assistant run? (append to log + embed)
+  auto_log: true
+  # Max past messages to retrieve per query
+  retrieval_top_k: 8
+
+# ---------------------------------------------------------------------------
+# Assistant / CLI
+# ---------------------------------------------------------------------------
+assistant:
+  # When a query comes in, which tables to search?
+  search_tables:
+    - "idx_projects"
+    - "idx_home"
+    - "idx_downloads"
+    - "idx_chat"
+  # Print retrieved chunks to stdout? (good for debugging)
+  verbose: false

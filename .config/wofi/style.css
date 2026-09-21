@@ -1,0 +1,51 @@
+window {
+  margin: 0;
+  border: 1px solid rgba(122, 162, 247, 0.52);
+  border-radius: 14px;
+  background-color: rgba(26, 27, 38, 0.78);
+  box-shadow: 0 18px 48px rgba(5, 6, 12, 0.42);
+  color: #c0caf5;
+  font-family: "Ubuntu Sans", "Noto Sans", sans-serif;
+  font-size: 15px;
+}
+
+#outer-box {
+  margin: 14px;
+}
+
+#input {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(125, 207, 255, 0.24);
+  border-radius: 8px;
+  background: rgba(4, 5, 12, 0.44);
+  color: #c0caf5;
+  box-shadow: none;
+}
+
+#scroll {
+  background: transparent;
+}
+
+#entry {
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: transparent;
+}
+
+#entry:selected {
+  background: rgba(122, 162, 247, 0.20);
+  color: #c0caf5;
+}
+
+#entry:selected #text {
+  color: #7dcfff;
+}
+
+#img {
+  margin-right: 12px;
+}
+
+#text {
+  margin: 2px;
+}

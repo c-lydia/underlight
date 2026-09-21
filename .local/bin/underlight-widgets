@@ -41,13 +41,13 @@ class UnderlightWidgets:
             "underlight-date", date_panel, top=56, right=18
         )
 
-        eyebrow_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        eyebrow_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=7)
         eyebrow_box.set_margin_top(6)
         eyebrow_box.set_margin_bottom(6)
         eyebrow_box.set_margin_start(4)
         
         logo = Gtk.Image.new_from_file(str(APP_DIR / "logo.svg"))
-        logo.set_pixel_size(20)
+        logo.set_pixel_size(18)
         eyebrow_box.pack_start(logo, False, False, 0)
 
         eyebrow = Gtk.Label(label="UNDERLIGHT")
@@ -99,6 +99,7 @@ class UnderlightWidgets:
         self.media_title = Gtk.Label()
         self.media_title.set_xalign(0)
         self.media_title.set_ellipsize(3)
+        self.media_title.set_max_width_chars(34)
         self.media_title.get_style_context().add_class("media-title")
         self.media_panel.pack_start(self.media_title, False, False, 7)
 
@@ -106,6 +107,7 @@ class UnderlightWidgets:
         self.media_artist = Gtk.Label()
         self.media_artist.set_xalign(0)
         self.media_artist.set_ellipsize(3)
+        self.media_artist.set_max_width_chars(19)
         self.media_artist.get_style_context().add_class("media-artist")
         media_bottom.pack_start(self.media_artist, True, True, 0)
         for label, method in (("prev", "Previous"), ("play", "PlayPause"), ("next", "Next")):
@@ -150,7 +152,7 @@ class UnderlightWidgets:
         drive_title.set_xalign(0)
         drive_title.get_style_context().add_class("section-title")
         drive_head.pack_start(drive_title, True, True, 0)
-        hint = Gtk.Label(label="/media/chheng-lydia")
+        hint = Gtk.Label(label=f"/media/{os.environ.get('USER', 'user')}")
         hint.set_xalign(1)
         hint.get_style_context().add_class("path-hint")
         drive_head.pack_end(hint, False, False, 0)

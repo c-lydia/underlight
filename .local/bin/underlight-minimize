@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+active_window=$(hyprctl activewindow -j 2>/dev/null) || exit 0
+address=$(jq -r '.address // empty' <<< "$active_window")
+window_workspace=$(jq -r '.workspace.name // empty' <<< "$active_window")
+
+[[ -n $address ]] || exit 0
+
+if [[ $window_workspace == special:minimized ]]; then
+  target_workspace=$(hyprctl activeworkspace -j | jq -r '.id // empty')
+  [[ $target_workspace =~ ^[1-9][0-9]*$ ]] || exit 1
+  hyprctl dispatch movetoworkspacesilent "$target_workspace,address:$address"
+  hyprctl dispatch togglespecialworkspace minimized
+else
+  hyprctl dispatch movetoworkspacesilent "special:minimized,address:$address"
+fi

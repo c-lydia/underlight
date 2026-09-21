@@ -1,19 +1,20 @@
 # Underlight
 
-Personal Hyprland desktop configuration for Ubuntu. The repository mirrors the
-paths below the home directory so the files can be restored with symbolic
-links.
+Personal Hyprland desktop configuration for Ubuntu and EndeavourOS. The
+repository mirrors paths below the home directory so the files can be restored
+with symbolic links.
 
 ## Included
 
 - Hyprland entry point and modular `underlight/` configuration
-- Waybar configuration and styling
+- Kitty, Waybar, Wofi, Mako, and desktop-widget styling with compositor blur
+- A full Neovim workbench bootstrap plus an Underlight transparency overlay
 - Desktop widget program and CSS
 - Underlight launcher, clipboard, power, screenshot, sensor, and window helpers
 - Hybrid Intel/NVIDIA PRIME offload and GPU readiness helpers
 - Ollama, OpenCode, and Hermes launch/status integration
 - Opt-in AC, battery, and AI performance profiles
-- Launch integration for `give_laptop_ac` and the Neovim workbench
+- A bundled, transparent `give_laptop_ac` dashboard and optional RAG pipeline
 
 ## Components and architecture
 
@@ -104,10 +105,13 @@ standard Wayland/Linux tools:
   AI tools, diagnostics, profiles, and the laptop dashboard.
 - `underlight-health-notify` reports a real host NVIDIA failure after login,
   while staying quiet when the driver is healthy or device nodes are hidden.
-- `underlight-laptop` opens `~/projects/give_laptop_ac` with its project virtual
-  environment. Press `Super+Shift+A` to launch it.
+- `underlight-laptop` prefers a working copy at `~/projects/give_laptop_ac` and
+  otherwise opens the bundled copy. Press `Super+Shift+A` to launch it.
+- `underlight-rag` exposes the optional local RAG indexer, assistant, chat
+  tracker, and HTTP server without storing indexes or models in this repo.
 - `underlight-install-extras` installs the optional Ubuntu utilities used by
-  the integrations.
+  the integrations. `install-endeavouros.sh` bootstraps a complete Hyprland
+  session from the official Arch repositories before linking the same config.
 
 ### Installation model
 
@@ -117,11 +121,13 @@ files into a timestamped state-directory backup first. Runtime state stays
 outside the repository; the notable persistent state is clipboard history,
 which is maintained by `cliphist`.
 
-## Install
+## Install on Ubuntu
 
 Clone the repository and run:
 
 ```bash
+git clone https://github.com/c-lydia/underlight.git
+cd underlight
 ./install.sh
 ```
 
@@ -148,6 +154,58 @@ widgets with:
 ~/.local/bin/underlight-widgets-toggle restart
 ```
 
+## Install on EndeavourOS
+
+On a newly installed EndeavourOS system, install Git, clone the repository,
+and run the EndeavourOS bootstrap as your normal user:
+
+```bash
+sudo pacman -S --needed git
+git clone https://github.com/c-lydia/underlight.git
+cd underlight
+./install-endeavouros.sh
+```
+
+The default bootstrap installs Hyprland, the complete Neovim workbench, and the
+bundled `give_laptop_ac` dashboard. AI and RAG remain opt-in:
+
+```bash
+./install-endeavouros.sh --with-ai   # adds Ollama and OpenCode; no models
+./install-endeavouros.sh --with-rag  # adds AI plus the isolated RAG environment
+```
+
+`--with-rag` creates `~/.config/underlight/rag.yaml`; review its source paths
+before indexing. It does not download a model or build an index. The bootstrap
+uses official Arch packages, then runs the same safe `install.sh` used on
+Ubuntu. It does not replace or remove Ubuntu support. Existing dotfiles are
+backed up under `~/.local/state/underlight-dotfiles-backup-*`.
+
+When it finishes, log out. Select **Hyprland** from the session chooser on the
+login screen and log back in. On a TTY-only setup, start it with:
+
+```bash
+start-hyprland
+```
+
+Hyprland starts Waybar, Mako, Hyprpaper, and the widgets automatically. To load
+widget CSS or logo changes without logging out, run:
+
+```bash
+~/.local/bin/underlight-widgets-toggle restart
+```
+
+To reload the rest of the Hyprland configuration in an existing session and
+check the installed commands:
+
+```bash
+hyprctl reload
+underlight-doctor
+```
+
+NVIDIA drivers are deliberately not installed by the bootstrap because the
+correct package depends on the GPU and kernel. Install the driver through
+EndeavourOS first; Underlight's PRIME helpers will detect it afterward.
+
 ## Hybrid GPU
 
 The desktop compositor stays on the integrated Intel GPU by default. Run a
@@ -161,7 +219,7 @@ The helper prefers `switcherooctl` and falls back to NVIDIA's PRIME render
 offload variables. Check the driver, DRM modesetting, render nodes, and PRIME
 discovery with `underlight-gpu-check`, or check the whole workstation with
 `underlight-doctor`. The optional extras installer installs
-`switcheroo-control`; NVIDIA's driver itself remains managed by Ubuntu.
+`switcheroo-control`; NVIDIA's driver itself remains managed by the host distro.
 
 The Waybar GPU pill reports sleeping, idle, or active state with temperature,
 power, VRAM, and compute-process details. Left-click opens the GPU/compute menu,
@@ -171,7 +229,8 @@ middle-click opens `give_laptop_ac`, and right-click opens the doctor. Use
 ## Local AI stack
 
 Underlight preserves the existing Ollama, OpenCode, and Hermes configuration.
-It only supplies desktop entry points around it:
+AI is optional on EndeavourOS; enable it with `--with-ai` or `--with-rag`.
+Underlight only supplies desktop entry points around it:
 
 ```bash
 underlight-ai menu
@@ -190,6 +249,14 @@ The Neovim workbench exposes the same path through `:GpuRun`, `:GpuInfo`,
 `:LaptopControl`, `:AI`, `:OpenCode`, `:Hermes`, `:OllamaInfo`,
 `:PowerProfile`, and `:UnderlightDoctor`. Its `nvim-workspace` launcher
 automatically uses kitty under Hyprland.
+
+When the optional RAG component is installed, review its config and start with
+a dry run:
+
+```bash
+underlight-rag index --table projects --dry-run
+underlight-rag ask "summarize this project"
+```
 
 ## Background applications
 

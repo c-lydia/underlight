@@ -2,7 +2,7 @@
 
 set -u
 
-widget=/home/chheng-lydia/.local/bin/underlight-widgets
+widget="${HOME:?}/.local/bin/underlight-widgets"
 mode=${1:-toggle}
 mapfile -t widget_pids < <(pgrep -f "^(python3 )?${widget}$" 2>/dev/null)
 
