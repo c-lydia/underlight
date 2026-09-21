@@ -11,6 +11,7 @@ import subprocess
 import time
 from datetime import datetime
 
+import cairo
 import gi
 
 gi.require_version("Gdk", "3.0")
@@ -172,6 +173,7 @@ class UnderlightWidgets:
         window.set_decorated(False)
         window.set_resizable(False)
         window.set_app_paintable(True)
+        window.connect("draw", self._clear_window_background)
 
         screen = window.get_screen()
         visual = screen.get_rgba_visual() if screen else None
@@ -188,6 +190,16 @@ class UnderlightWidgets:
         window.connect("size-allocate", self._queue_restack)
         self.windows.append(window)
         return window
+
+    @staticmethod
+    def _clear_window_background(_window, context):
+        """Clear GTK's backing surface so CSS alpha reaches the compositor."""
+        context.save()
+        context.set_operator(cairo.OPERATOR_SOURCE)
+        context.set_source_rgba(0.0, 0.0, 0.0, 0.0)
+        context.paint()
+        context.restore()
+        return False
 
     @staticmethod
     def _window_destroyed(_window):
