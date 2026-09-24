@@ -31,7 +31,13 @@ trap 'rm -rf -- "$test_root"' EXIT
 test_home="$test_root/home"
 test_state="$test_root/state"
 mkdir -p "$test_home" "$test_state"
-HOME="$test_home" XDG_STATE_HOME="$test_state" "$root/install.sh" >/dev/null
+test_workbench="$test_root/neovim-workbench"
+mkdir -p "$test_workbench"
+printf '%s\n' '-- test Neovim workbench' > "$test_workbench/init.lua"
+HOME="$test_home" XDG_STATE_HOME="$test_state" \
+  UNDERLIGHT_NEOVIM_SOURCE="$test_workbench" "$root/install.sh" >/dev/null
+[[ -L $test_home/.config/nvim ]]
+[[ $(readlink -f -- "$test_home/.config/nvim") == $(readlink -f -- "$test_workbench") ]]
 [[ -L $test_home/.local/bin/underlight-doctor ]]
 [[ -L $test_home/.config/nvim/after/plugin/underlight-transparent.lua ]]
 [[ -L $test_home/.config/kitty/kitty.conf ]]
@@ -44,8 +50,32 @@ HOME="$test_home" XDG_STATE_HOME="$test_state" "$root/install.sh" >/dev/null
 [[ -L $test_home/.local/bin/underlight-rag ]]
 [[ -L $test_home/.local/bin/nvim-workspace ]]
 HOME="$test_home" XDG_STATE_HOME="$test_state" "$root/install.sh" --restore latest >/dev/null
+if [[ -e $test_home/.config/nvim || -L $test_home/.config/nvim ]]; then
+  printf 'rollback left the Neovim workbench link installed\n' >&2
+  exit 1
+fi
+if [[ -e $test_workbench/after/plugin/underlight-transparent.lua || -L $test_workbench/after/plugin/underlight-transparent.lua ]]; then
+  printf 'rollback left the Neovim overlay installed\n' >&2
+  exit 1
+fi
 if [[ -e $test_home/.local/bin/underlight-doctor || -L $test_home/.local/bin/underlight-doctor ]]; then
   printf 'rollback left the doctor link installed\n' >&2
+  exit 1
+fi
+
+preserve_home="$test_root/preserve-home"
+preserve_state="$test_root/preserve-state"
+mkdir -p "$preserve_home/.config/nvim" "$preserve_state"
+printf '%s\n' '-- existing user config' > "$preserve_home/.config/nvim/init.lua"
+HOME="$preserve_home" XDG_STATE_HOME="$preserve_state" \
+  UNDERLIGHT_NEOVIM_SOURCE="$test_workbench" "$root/install.sh" >/dev/null
+[[ ! -L $preserve_home/.config/nvim ]]
+[[ $(<"$preserve_home/.config/nvim/init.lua") == '-- existing user config' ]]
+[[ -L $preserve_home/.config/nvim/after/plugin/underlight-transparent.lua ]]
+HOME="$preserve_home" XDG_STATE_HOME="$preserve_state" "$root/install.sh" --restore latest >/dev/null
+[[ -f $preserve_home/.config/nvim/init.lua ]]
+if [[ -e $preserve_home/.config/nvim/after/plugin/underlight-transparent.lua || -L $preserve_home/.config/nvim/after/plugin/underlight-transparent.lua ]]; then
+  printf 'rollback left the overlay in an existing Neovim config\n' >&2
   exit 1
 fi
 

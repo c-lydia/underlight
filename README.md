@@ -4,6 +4,10 @@ Personal Hyprland desktop configuration for Ubuntu and EndeavourOS. The
 repository mirrors paths below the home directory so the files can be restored
 with symbolic links.
 
+For an implementation-level tour of every configuration, executable, Python
+module, C++ component, data file, and test, see
+[CODE_WALKTHROUGH.md](CODE_WALKTHROUGH.md).
+
 ## Included
 
 - Hyprland entry point and modular `underlight/` configuration
@@ -130,6 +134,13 @@ git clone https://github.com/c-lydia/underlight.git
 cd underlight
 ./install.sh
 ```
+
+The installer also installs Neovim through `apt` when it is missing, clones the
+full workbench configuration to `~/.local/share/underlight/neovim_config`, and
+links it as `~/.config/nvim`. An existing Neovim configuration is preserved;
+only the Underlight transparency overlay is added to it. The workbench requires
+Neovim 0.11.3 or newer. To keep an existing editor setup without downloading
+the workbench, run `UNDERLIGHT_SKIP_NEOVIM=1 ./install.sh`.
 
 Existing files are moved to a timestamped directory below
 `~/.local/state/underlight-dotfiles-backup-*` before links are created.
