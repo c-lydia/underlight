@@ -189,6 +189,9 @@ overlay; the companion repository owns the editor workbench.
 Native modules read system state directly. Custom modules execute
 `underlight-window-mode` and `underlight-sensor`, both of which return Waybar
 JSON. Click handlers reuse the same commands exposed by keyboard shortcuts.
+`underlight-network` provides the same NetworkManager/Wofi Wi-Fi picker on
+Ubuntu and EndeavourOS; the other hardware sections open the widgets,
+diagnostics, laptop controls, audio mixer, or power-profile menu.
 
 `.config/waybar/style.css` makes each group a translucent outlined capsule. It
 styles workspace active/urgent states, tile/float state, hardware warning and
@@ -212,6 +215,8 @@ the live config directory.
 ### Application and session helpers
 
 - `.local/bin/underlight-menu` replaces itself with Wofi's application view.
+- `.local/bin/underlight-network` scans and selects Wi-Fi with NetworkManager,
+  reuses saved credentials, and requests a missing password through Wofi.
 - `.local/bin/underlight-power` pipes five actions into Wofi, then maps the
   chosen label to `loginctl`, `systemctl`, or `hyprctl`. Canceling produces no
   action.

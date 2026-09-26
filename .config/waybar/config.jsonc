@@ -57,7 +57,8 @@
     "format": "{:%H:%M}",
     "format-alt": "{:%A, %d %B %Y  ·  %H:%M:%S}",
     "tooltip-format": "<tt><small>{calendar}</small></tt>",
-    "calendar": { "mode": "month", "weeks-pos": "right" }
+    "calendar": { "mode": "month", "weeks-pos": "right" },
+    "on-click": "~/.local/bin/underlight-widgets-toggle"
   },
   "tray": {
     "icon-size": 14,
@@ -77,19 +78,23 @@
     "tooltip-format-wifi": "{essid}  ·  {signalStrength}%\n{ipaddr}\nClick to change network",
     "tooltip-format-ethernet": "Wired  ·  {ipaddr}",
     "tooltip-format-disconnected": "Offline  ·  click to connect",
-    "on-click": "gnome-control-center wifi",
+    "on-click": "~/.local/bin/underlight-network",
     "on-click-right": "nm-connection-editor"
   },
   "cpu": {
     "interval": 2,
     "format": "CPU {usage}%",
-    "states": { "warning": 75, "critical": 92 }
+    "states": { "warning": 75, "critical": 92 },
+    "on-click": "~/.local/bin/underlight-widgets-toggle",
+    "on-click-right": "~/.local/bin/underlight-doctor --terminal"
   },
   "memory": {
     "interval": 3,
     "format": "RAM {percentage}%",
     "tooltip-format": "{used:.1f} / {total:.1f} GiB",
-    "states": { "warning": 80, "critical": 92 }
+    "states": { "warning": 80, "critical": 92 },
+    "on-click": "~/.local/bin/underlight-widgets-toggle",
+    "on-click-right": "~/.local/bin/underlight-doctor --terminal"
   },
   "custom/gpu": {
     "exec": "~/.local/bin/underlight-sensor gpu",
@@ -102,7 +107,9 @@
   "custom/fan": {
     "exec": "~/.local/bin/underlight-sensor fan",
     "return-type": "json",
-    "interval": 3
+    "interval": 3,
+    "on-click": "~/.local/bin/underlight-laptop",
+    "on-click-right": "~/.local/bin/underlight-widgets-toggle"
   },
   "pulseaudio": {
     "format": "{icon}",
@@ -113,7 +120,7 @@
     "scroll-step": 5,
     "tooltip-format": "{desc}\nVolume {volume}%  ·  scroll to adjust",
     "on-click": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
-    "on-click-right": "sh -c 'command -v pavucontrol >/dev/null && pavucontrol || gnome-control-center sound'"
+    "on-click-right": "sh -c 'if command -v pavucontrol >/dev/null; then exec pavucontrol; elif command -v gnome-control-center >/dev/null; then exec gnome-control-center sound; else notify-send Audio Audio-mixer-is-not-installed; fi'"
   },
   "battery": {
     "interval": 10,
@@ -122,7 +129,9 @@
     "format-charging": " {capacity}%",
     "format-plugged": " {capacity}%",
     "format-icons": ["", "", "", "", ""],
-    "tooltip-format": "{timeTo}  ·  {power:.1f} W"
+    "tooltip-format": "{timeTo}  ·  {power:.1f} W\nClick for power profiles",
+    "on-click": "~/.local/bin/underlight-profile menu",
+    "on-click-right": "~/.local/bin/underlight-widgets-toggle"
   },
   "custom/power": {
     "format": "",

@@ -173,6 +173,7 @@ link_item .local/bin/underlight-install-extras
 link_item .local/bin/underlight-laptop
 link_item .local/bin/underlight-menu
 link_item .local/bin/underlight-minimize
+link_item .local/bin/underlight-network
 link_item .local/bin/underlight-rag
 link_item .local/bin/underlight-profile
 link_item .local/bin/underlight-power

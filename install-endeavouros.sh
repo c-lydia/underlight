@@ -73,6 +73,7 @@ packages=(
   libnotify
   mako
   nautilus
+  networkmanager
   network-manager-applet
   neovim
   ninja
@@ -108,6 +109,7 @@ fi
 
 printf 'Installing Underlight desktop dependencies with pacman...\n'
 sudo pacman -Syu --needed "${packages[@]}"
+sudo systemctl enable --now NetworkManager.service
 
 data_root="${HOME:?}/.local/share/underlight"
 config_root="${XDG_CONFIG_HOME:-$HOME/.config}/underlight"

@@ -85,8 +85,10 @@ instance through Hyprland.
 Programs in `~/.local/bin/underlight-*` are deliberately small adapters around
 standard Wayland/Linux tools:
 
-- `underlight-menu`, `underlight-clipboard`, and `underlight-power` present Wofi
-  menus for applications, clipboard history, and session actions.
+- `underlight-menu`, `underlight-network`, `underlight-clipboard`, and
+  `underlight-power` present Wofi menus for applications, Wi-Fi connections,
+  clipboard history, and session actions. The Wi-Fi menu uses NetworkManager
+  directly and works the same way on Ubuntu and EndeavourOS.
 - `underlight-shot` captures a screen or selected area, saves it under
   `~/Pictures/Screenshots`, and copies it to the Wayland clipboard when
   available.
@@ -212,6 +214,12 @@ check the installed commands:
 hyprctl reload
 underlight-doctor
 ```
+
+Every Waybar section is interactive on both supported distributions. Click the
+network section to scan, connect, disconnect, or toggle Wi-Fi; right-click it
+for NetworkManager's advanced connection editor. Click the clock, CPU, or RAM
+section for the desktop widgets, the fan section for laptop controls, and the
+battery section for power profiles. Right-click audio for the volume mixer.
 
 NVIDIA drivers are deliberately not installed by the bootstrap because the
 correct package depends on the GPU and kernel. Install the driver through

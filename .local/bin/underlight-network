@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+
+set -u
+
+notify() {
+  local urgency=$1
+  shift
+  if command -v notify-send >/dev/null 2>&1; then
+    notify-send --urgency="$urgency" 'Underlight network' "$*"
+  fi
+}
+
+for command in nmcli wofi; do
+  if ! command -v "$command" >/dev/null 2>&1; then
+    notify critical "$command is not installed"
+    printf 'underlight-network: %s is not installed\n' "$command" >&2
+    exit 1
+  fi
+done
+
+wifi_state=$(nmcli radio wifi 2>/dev/null) || {
+  notify critical 'NetworkManager is unavailable'
+  exit 1
+}
+
+if [[ $wifi_state != enabled ]]; then
+  choice=$(printf '%s\n' 'Enable Wi-Fi' 'Advanced network settings' |
+    wofi --dmenu --insensitive --prompt 'Wi-Fi is disabled' --width 520 --height 220) || exit 0
+  case $choice in
+    'Enable Wi-Fi')
+      if nmcli radio wifi on; then
+        notify normal 'Wi-Fi enabled'
+      else
+        notify critical 'Could not enable Wi-Fi'
+        exit 1
+      fi
+      ;;
+    'Advanced network settings')
+      if command -v nm-connection-editor >/dev/null 2>&1; then
+        exec nm-connection-editor
+      fi
+      notify critical 'nm-connection-editor is not installed'
+      exit 1
+      ;;
+  esac
+  exit 0
+fi
+
+wifi_device=''
+while IFS=: read -r device type _; do
+  if [[ $type == wifi ]]; then
+    wifi_device=$device
+    break
+  fi
+done < <(nmcli -t --escape no -f DEVICE,TYPE,STATE device status 2>/dev/null)
+
+if [[ -z $wifi_device ]]; then
+  notify critical 'No Wi-Fi adapter was found'
+  exit 1
+fi
+
+current_ssid=''
+while IFS= read -r network; do
+  if [[ $network == '*:'* ]]; then
+    current_ssid=${network#*:}
+    break
+  fi
+done < <(nmcli -t --escape no -f IN-USE,SSID device wifi list ifname "$wifi_device" 2>/dev/null)
+
+entries=('Rescan networks' 'Turn Wi-Fi off' 'Advanced network settings')
+ssids=('' '' '')
+if [[ -n $current_ssid ]]; then
+  entries=("Disconnect from $current_ssid" "${entries[@]}")
+  ssids=('' "${ssids[@]}")
+fi
+
+declare -A seen=()
+while IFS= read -r ssid; do
+  [[ -n $ssid ]] || continue
+  [[ -z ${seen["$ssid"]+present} ]] || continue
+  seen["$ssid"]=1
+  if [[ $ssid == "$current_ssid" ]]; then
+    entries+=("Connected  ·  $ssid")
+  else
+    entries+=("Connect  ·  $ssid")
+  fi
+  ssids+=("$ssid")
+done < <(nmcli --terse --escape no --get-values SSID device wifi list ifname "$wifi_device" --rescan yes 2>/dev/null)
+
+choice=$(printf '%s\n' "${entries[@]}" |
+  wofi --dmenu --insensitive --no-custom-entry --prompt 'Wi-Fi' --width 620 --height 480) || exit 0
+
+case $choice in
+  'Rescan networks') exec "$0" ;;
+  'Turn Wi-Fi off')
+    if nmcli radio wifi off; then
+      notify normal 'Wi-Fi disabled'
+    else
+      notify critical 'Could not disable Wi-Fi'
+      exit 1
+    fi
+    exit 0
+    ;;
+  'Advanced network settings')
+    if command -v nm-connection-editor >/dev/null 2>&1; then
+      exec nm-connection-editor
+    fi
+    notify critical 'nm-connection-editor is not installed'
+    exit 1
+    ;;
+  "Disconnect from $current_ssid")
+    if nmcli device disconnect "$wifi_device"; then
+      notify normal "Disconnected from $current_ssid"
+    else
+      notify critical "Could not disconnect from $current_ssid"
+      exit 1
+    fi
+    exit 0
+    ;;
+esac
+
+selected_ssid=''
+for index in "${!entries[@]}"; do
+  if [[ ${entries[index]} == "$choice" ]]; then
+    selected_ssid=${ssids[index]}
+    break
+  fi
+done
+
+[[ -n $selected_ssid ]] || exit 0
+if [[ $selected_ssid == "$current_ssid" ]]; then
+  notify normal "Already connected to $selected_ssid"
+  exit 0
+fi
+
+# First let NetworkManager reuse a saved connection and its stored secret.
+if connection_output=$(nmcli device wifi connect "$selected_ssid" ifname "$wifi_device" 2>&1); then
+  notify normal "Connected to $selected_ssid"
+  exit 0
+fi
+
+password=$(printf '\n' |
+  wofi --dmenu --password --prompt "Password for $selected_ssid" --width 620 --height 180) || exit 0
+[[ -n $password ]] || exit 0
+
+# --ask reads the secret from stdin, so the password is not exposed in argv.
+if connection_output=$(printf '%s\n' "$password" |
+  nmcli --ask device wifi connect "$selected_ssid" ifname "$wifi_device" 2>&1); then
+  notify normal "Connected to $selected_ssid"
+else
+  notify critical "Could not connect to $selected_ssid: $connection_output"
+  exit 1
+fi

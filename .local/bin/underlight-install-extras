@@ -12,6 +12,7 @@ sudo apt-get install -y \
   playerctl \
   pavucontrol \
   switcheroo-control \
+  network-manager \
   network-manager-gnome
 
 printf '\nExtras installed. Log out and back into Hyprland once to start every helper.\n'
