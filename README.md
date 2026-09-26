@@ -63,7 +63,38 @@ Waybar is the always-visible shell surface. Its native modules show workspaces,
 network, CPU, memory, audio, battery, clock, and tray state. Custom modules call
 `underlight-window-mode` and `underlight-sensor` to read Hyprland, GPU, and fan
 state. Waybar buttons and Hyprland key bindings invoke the same helper scripts,
-so mouse and keyboard workflows share one implementation.
+so mouse and keyboard workflows share one implementation. `Super+X` opens a
+keyboard-first system-actions menu containing every control exposed by the bar.
+Waybar uses left click for primary actions and right click for advanced actions.
+Use `Super+Tab`/`Super+Shift+Tab` to cycle desktops, or `Super+1…0` to jump
+directly to one.
+
+### Keyboard controls
+
+Every Waybar function is available without a mouse. `Super+X` opens the
+keyboard-driven system-actions menu; type to filter it, use the arrow keys to
+select an action, and press Enter. It contains applications, Wi-Fi, desktop
+widgets, the audio mixer, power profiles, the laptop dashboard, GPU tools,
+system diagnostics, and session/power actions.
+
+| Keys | Action |
+| --- | --- |
+| `Super+X` | Open all system actions |
+| `Super+Space` or `Super+R` | Open the application launcher |
+| `Super+Tab` | Move to the next active desktop |
+| `Super+Shift+Tab` | Move to the previous active desktop |
+| `Super+1…0` | Jump directly to desktop 1–10 |
+| `Super+Shift+1…0` | Move the active window to desktop 1–10 |
+| `Super+M` | Open session and power actions |
+| `Super+Shift+V` | Open clipboard history |
+| `Super+Shift+A` | Open the laptop dashboard |
+| `Super+Shift+G` | Open GPU and compute actions |
+| `Super+Shift+I` | Open AI tools |
+
+Waybar remains fully interactive for mouse use. Left click always performs a
+module's primary action, right click opens its advanced action or settings, and
+scroll adjusts values such as volume or cycles workspaces. Tooltips show the
+available actions for each module.
 
 ### Widget layer
 
@@ -85,7 +116,8 @@ instance through Hyprland.
 Programs in `~/.local/bin/underlight-*` are deliberately small adapters around
 standard Wayland/Linux tools:
 
-- `underlight-menu`, `underlight-network`, `underlight-clipboard`, and
+- `underlight-menu`, `underlight-control`, `underlight-network`,
+  `underlight-clipboard`, and
   `underlight-power` present Wofi menus for applications, Wi-Fi connections,
   clipboard history, and session actions. The Wi-Fi menu uses NetworkManager
   directly and works the same way on Ubuntu and EndeavourOS.
@@ -180,7 +212,9 @@ cd underlight
 ```
 
 The default bootstrap installs Hyprland, the complete Neovim workbench, and the
-bundled `give_laptop_ac` dashboard. AI and RAG remain opt-in:
+bundled `give_laptop_ac` dashboard. It installs the same `Super+X` system menu
+and desktop-navigation bindings documented above; no EndeavourOS-specific
+keybinding step is required. AI and RAG remain opt-in:
 
 ```bash
 ./install-endeavouros.sh --with-ai   # adds Ollama and OpenCode; no models
@@ -242,7 +276,7 @@ discovery with `underlight-gpu-check`, or check the whole workstation with
 
 The Waybar GPU pill reports sleeping, idle, or active state with temperature,
 power, VRAM, and compute-process details. Left-click opens the GPU/compute menu,
-middle-click opens `give_laptop_ac`, and right-click opens the doctor. Use
+middle-click opens `give_laptop_ac`, and right-click opens GPU diagnostics. Use
 `Super+Shift+G` for the GPU menu and `Super+Shift+I` for the AI menu.
 
 ## Local AI stack

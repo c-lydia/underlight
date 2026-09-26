@@ -7,6 +7,7 @@ scripts=(
   "$root/install.sh"
   "$root/install-endeavouros.sh"
   "$root/.local/bin/underlight-ai"
+  "$root/.local/bin/underlight-control"
   "$root/.local/bin/underlight-doctor"
   "$root/.local/bin/underlight-gpu-check"
   "$root/.local/bin/underlight-gpu-menu"
@@ -38,6 +39,7 @@ HOME="$test_home" XDG_STATE_HOME="$test_state" \
   UNDERLIGHT_NEOVIM_SOURCE="$test_workbench" "$root/install.sh" >/dev/null
 [[ -L $test_home/.config/nvim ]]
 [[ $(readlink -f -- "$test_home/.config/nvim") == $(readlink -f -- "$test_workbench") ]]
+[[ -L $test_home/.local/bin/underlight-control ]]
 [[ -L $test_home/.local/bin/underlight-doctor ]]
 [[ -L $test_home/.config/nvim/after/plugin/underlight-transparent.lua ]]
 [[ -L $test_home/.config/kitty/kitty.conf ]]
@@ -49,6 +51,12 @@ HOME="$test_home" XDG_STATE_HOME="$test_state" \
 [[ -L $test_home/.local/share/underlight/give_laptop_ac ]]
 [[ -L $test_home/.local/bin/underlight-rag ]]
 [[ -L $test_home/.local/bin/nvim-workspace ]]
+grep -Fq 'bind = $mainMod, X, exec, ~/.local/bin/underlight-control' \
+  "$test_home/.config/hypr/underlight/bindings.conf"
+grep -Fq 'bind = $mainMod, TAB, workspace, e+1' \
+  "$test_home/.config/hypr/underlight/bindings.conf"
+grep -Fq 'bind = $mainMod SHIFT, TAB, workspace, e-1' \
+  "$test_home/.config/hypr/underlight/bindings.conf"
 HOME="$test_home" XDG_STATE_HOME="$test_state" "$root/install.sh" --restore latest >/dev/null
 if [[ -e $test_home/.config/nvim || -L $test_home/.config/nvim ]]; then
   printf 'rollback left the Neovim workbench link installed\n' >&2
@@ -60,6 +68,10 @@ if [[ -e $test_workbench/after/plugin/underlight-transparent.lua || -L $test_wor
 fi
 if [[ -e $test_home/.local/bin/underlight-doctor || -L $test_home/.local/bin/underlight-doctor ]]; then
   printf 'rollback left the doctor link installed\n' >&2
+  exit 1
+fi
+if [[ -e $test_home/.local/bin/underlight-control || -L $test_home/.local/bin/underlight-control ]]; then
+  printf 'rollback left the system-actions link installed\n' >&2
   exit 1
 fi
 

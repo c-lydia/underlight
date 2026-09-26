@@ -22,8 +22,9 @@
 
   "custom/launcher": {
     "format": "",
-    "tooltip-format": "Apps",
-    "on-click": "~/.local/bin/underlight-menu"
+    "tooltip-format": "Applications\nLeft: open apps  ·  Right: system actions\nSuper + Space  ·  Super + X",
+    "on-click": "~/.local/bin/underlight-menu",
+    "on-click-right": "~/.local/bin/underlight-control"
   },
   "hyprland/workspaces": {
     "format": "{icon}",
@@ -56,7 +57,7 @@
     "interval": 1,
     "format": "{:%H:%M}",
     "format-alt": "{:%A, %d %B %Y  ·  %H:%M:%S}",
-    "tooltip-format": "<tt><small>{calendar}</small></tt>",
+    "tooltip-format": "<tt><small>{calendar}</small></tt>\n\nLeft: show or hide desktop widgets",
     "calendar": { "mode": "month", "weeks-pos": "right" },
     "on-click": "~/.local/bin/underlight-widgets-toggle"
   },
@@ -66,8 +67,9 @@
   },
   "custom/widgets": {
     "format": "",
-    "tooltip-format": "Underlight widgets\nClick to show or hide",
-    "on-click": "~/.local/bin/underlight-widgets-toggle"
+    "tooltip-format": "Desktop widgets\nLeft: show or hide  ·  Right: system actions\nSystem actions: Super + X",
+    "on-click": "~/.local/bin/underlight-widgets-toggle",
+    "on-click-right": "~/.local/bin/underlight-control"
   },
   "network": {
     "interval": 2,
@@ -75,9 +77,9 @@
     "format-ethernet": "  ↓{bandwidthDownBytes} ↑{bandwidthUpBytes}",
     "format-linked": "  linked",
     "format-disconnected": "",
-    "tooltip-format-wifi": "{essid}  ·  {signalStrength}%\n{ipaddr}\nClick to change network",
-    "tooltip-format-ethernet": "Wired  ·  {ipaddr}",
-    "tooltip-format-disconnected": "Offline  ·  click to connect",
+    "tooltip-format-wifi": "{essid}  ·  {signalStrength}%\n{ipaddr}\n\nLeft: Wi-Fi picker  ·  Right: advanced settings",
+    "tooltip-format-ethernet": "Wired  ·  {ipaddr}\n\nLeft: network controls  ·  Right: advanced settings",
+    "tooltip-format-disconnected": "Offline\n\nLeft: connect  ·  Right: advanced settings",
     "on-click": "~/.local/bin/underlight-network",
     "on-click-right": "nm-connection-editor"
   },
@@ -85,13 +87,14 @@
     "interval": 2,
     "format": "CPU {usage}%",
     "states": { "warning": 75, "critical": 92 },
+    "tooltip-format": "CPU {usage}%\n\nLeft: system widgets  ·  Right: diagnostics",
     "on-click": "~/.local/bin/underlight-widgets-toggle",
     "on-click-right": "~/.local/bin/underlight-doctor --terminal"
   },
   "memory": {
     "interval": 3,
     "format": "RAM {percentage}%",
-    "tooltip-format": "{used:.1f} / {total:.1f} GiB",
+    "tooltip-format": "{used:.1f} / {total:.1f} GiB\n\nLeft: system widgets  ·  Right: diagnostics",
     "states": { "warning": 80, "critical": 92 },
     "on-click": "~/.local/bin/underlight-widgets-toggle",
     "on-click-right": "~/.local/bin/underlight-doctor --terminal"
@@ -100,14 +103,16 @@
     "exec": "~/.local/bin/underlight-sensor gpu",
     "return-type": "json",
     "interval": 3,
+    "tooltip-format": "{tooltip}\n\nLeft: GPU actions  ·  Middle: laptop dashboard\nRight: GPU diagnostics",
     "on-click": "~/.local/bin/underlight-gpu-menu",
     "on-click-middle": "~/.local/bin/underlight-laptop",
-    "on-click-right": "~/.local/bin/underlight-doctor --terminal"
+    "on-click-right": "~/.local/bin/underlight-gpu-check --terminal"
   },
   "custom/fan": {
     "exec": "~/.local/bin/underlight-sensor fan",
     "return-type": "json",
     "interval": 3,
+    "tooltip-format": "{tooltip}\n\nLeft: laptop dashboard  ·  Right: system widgets",
     "on-click": "~/.local/bin/underlight-laptop",
     "on-click-right": "~/.local/bin/underlight-widgets-toggle"
   },
@@ -118,9 +123,9 @@
       "default": ["", "", ""]
     },
     "scroll-step": 5,
-    "tooltip-format": "{desc}\nVolume {volume}%  ·  scroll to adjust",
+    "tooltip-format": "{desc}\nVolume {volume}%\n\nLeft: mute  ·  Right: audio mixer  ·  Scroll: adjust",
     "on-click": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
-    "on-click-right": "sh -c 'if command -v pavucontrol >/dev/null; then exec pavucontrol; elif command -v gnome-control-center >/dev/null; then exec gnome-control-center sound; else notify-send Audio Audio-mixer-is-not-installed; fi'"
+    "on-click-right": "~/.local/bin/underlight-control audio"
   },
   "battery": {
     "interval": 10,
@@ -129,13 +134,14 @@
     "format-charging": " {capacity}%",
     "format-plugged": " {capacity}%",
     "format-icons": ["", "", "", "", ""],
-    "tooltip-format": "{timeTo}  ·  {power:.1f} W\nClick for power profiles",
+    "tooltip-format": "{timeTo}  ·  {power:.1f} W\n\nLeft: power profile  ·  Right: system widgets",
     "on-click": "~/.local/bin/underlight-profile menu",
     "on-click-right": "~/.local/bin/underlight-widgets-toggle"
   },
   "custom/power": {
     "format": "",
-    "tooltip-format": "Session & power",
-    "on-click": "~/.local/bin/underlight-power"
+    "tooltip-format": "Session & power\nLeft: power menu  ·  Right: all system actions\nPower: Super + M  ·  System actions: Super + X",
+    "on-click": "~/.local/bin/underlight-power",
+    "on-click-right": "~/.local/bin/underlight-control"
   }
 }

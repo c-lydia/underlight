@@ -178,6 +178,9 @@ printf '%s\n' \
   'Underlight is installed.' \
   'Log out, choose the Hyprland session in your login screen, and log back in.' \
   'From a TTY without a display manager, run: start-hyprland' \
+  'System actions: Super+X' \
+  'Next/previous desktop: Super+Tab / Super+Shift+Tab' \
+  'Jump to desktop: Super+1..0; move a window: Super+Shift+1..0' \
   'After login, run underlight-doctor to check the setup.'
 
 if [[ $with_ai == true ]]; then

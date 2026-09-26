@@ -136,16 +136,18 @@ The sourced modules are:
 
 ### Binding-to-script flow
 
-The central bindings are `Super+Space` for Wofi, `Super+M` for power,
+The central bindings are `Super+Space` for Wofi, `Super+X` for all system
+actions, `Super+M` for power,
 `Super+Shift+V` for clipboard history, `Super+Shift+A` for the laptop dashboard,
 `Super+Shift+G` for GPU/compute actions, and `Super+Shift+I` for AI tools.
 Print Screen captures the whole display; `Super+Shift+S` captures a selection.
 `Super+N` moves the current window to or from a hidden special workspace.
 
-Window focus, movement, and resize support both arrows and H/J/K/L. Number keys
-select workspaces; shifted number keys move windows. Audio and brightness keys
-call PipeWire and `brightnessctl`, while media keys call `playerctl` only when
-it is installed.
+Window focus, movement, and resize support both arrows and H/J/K/L.
+`Super+Tab` and `Super+Shift+Tab` move to the next and previous desktops. Number
+keys select workspaces; shifted number keys move windows. Audio and brightness
+keys call PipeWire and `brightnessctl`, while media keys call `playerctl` only
+when it is installed.
 
 ## 4. Desktop surfaces and styling
 
@@ -189,6 +191,7 @@ overlay; the companion repository owns the editor workbench.
 Native modules read system state directly. Custom modules execute
 `underlight-window-mode` and `underlight-sensor`, both of which return Waybar
 JSON. Click handlers reuse the same commands exposed by keyboard shortcuts.
+`underlight-control` provides keyboard access to every bar action, and
 `underlight-network` provides the same NetworkManager/Wofi Wi-Fi picker on
 Ubuntu and EndeavourOS; the other hardware sections open the widgets,
 diagnostics, laptop controls, audio mixer, or power-profile menu.
@@ -215,6 +218,8 @@ the live config directory.
 ### Application and session helpers
 
 - `.local/bin/underlight-menu` replaces itself with Wofi's application view.
+- `.local/bin/underlight-control` presents every Waybar action in one
+  keyboard-driven Wofi menu and provides the shared audio-mixer fallback.
 - `.local/bin/underlight-network` scans and selects Wi-Fi with NetworkManager,
   reuses saved credentials, and requests a missing password through Wofi.
 - `.local/bin/underlight-power` pipes five actions into Wofi, then maps the

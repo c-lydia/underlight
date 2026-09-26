@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+notify_missing() {
+  local component=$1
+  if command -v notify-send >/dev/null 2>&1; then
+    notify-send --urgency=critical 'Underlight controls' "$component is not installed"
+  fi
+  printf 'underlight-control: %s is not installed\n' "$component" >&2
+  exit 1
+}
+
+open_audio() {
+  if command -v pavucontrol >/dev/null 2>&1; then
+    exec pavucontrol
+  elif command -v gnome-control-center >/dev/null 2>&1; then
+    exec gnome-control-center sound
+  fi
+  notify_missing 'an audio mixer'
+}
+
+open_menu() {
+  command -v wofi >/dev/null 2>&1 || notify_missing wofi
+
+  local choice
+  choice=$(printf '%s\n' \
+    'Applications' \
+    'Wi-Fi' \
+    'Desktop widgets' \
+    'Audio mixer' \
+    'Power profile' \
+    'Laptop dashboard' \
+    'GPU & compute' \
+    'System diagnostics' \
+    'Session & power' |
+    wofi --dmenu --insensitive --no-custom-entry --prompt 'System actions' \
+      --width 560 --height 500) || exit 0
+
+  case $choice in
+    'Applications') exec underlight-menu ;;
+    'Wi-Fi') exec underlight-network ;;
+    'Desktop widgets') exec underlight-widgets-toggle ;;
+    'Audio mixer') open_audio ;;
+    'Power profile') exec underlight-profile menu ;;
+    'Laptop dashboard') exec underlight-laptop ;;
+    'GPU & compute') exec underlight-gpu-menu ;;
+    'System diagnostics') exec underlight-doctor --terminal ;;
+    'Session & power') exec underlight-power ;;
+  esac
+}
+
+case ${1:-menu} in
+  menu) open_menu ;;
+  audio) open_audio ;;
+  *)
+    printf 'Usage: underlight-control [menu|audio]\n' >&2
+    exit 2
+    ;;
+esac

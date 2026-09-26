@@ -164,6 +164,7 @@ link_item .local/share/underlight/give_laptop_ac
 link_item .local/bin/underlight-ai
 link_item .local/bin/underlight-background
 link_item .local/bin/underlight-clipboard
+link_item .local/bin/underlight-control
 link_item .local/bin/underlight-doctor
 link_item .local/bin/underlight-gpu-check
 link_item .local/bin/underlight-gpu-menu
