@@ -1,5 +1,5 @@
 """
-Route A — indexer.py
+Underlight RAG indexer.
 Indexes code repos, text, KiCad s-expr files, PDFs, and images (+OCR) into
 LanceDB tables. Reads .ragconfig.yaml. Idempotent: safe to re-run.
 
@@ -9,80 +9,16 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import json
-import os
+import fnmatch
 import re
-import sys
 import time
-from dataclasses import dataclass, field
+import uuid
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from tqdm import tqdm
 from config_loader import load_config
-
-# ---------------------------------------------------------------------------
-# Config
-# ---------------------------------------------------------------------------
-cfg = load_config()
-
-# ---------------------------------------------------------------------------
-# LanceDB
-# ---------------------------------------------------------------------------
-try:
-    import lancedb
-except ImportError:
-    print("lancedb not installed — pip install -r requirements.txt")
-    sys.exit(1)
-
-
-# ---------------------------------------------------------------------------
-# Embedder
-# ---------------------------------------------------------------------------
-@dataclass
-class Embedder:
-    model_name: str
-    device: str
-    batch_size: int
-    _model = None
-
-    def __post_init__(self):
-        if self.device != "ollama":
-            from sentence_transformers import SentenceTransformer
-            self._model = SentenceTransformer(self.model_name, device=self.device)
-
-    def embed(self, texts: list[str]) -> list[list[float]]:
-        if self.device == "ollama":
-            return self._embed_ollama(texts)
-        return self._model.encode(
-            texts, batch_size=self.batch_size, convert_to_numpy=True, show_progress_bar=False
-        ).tolist()
-
-    def _embed_ollama(self, texts: list[str]) -> list[list[float]]:
-        import requests
-        base = cfg["ollama"]["base_url"]
-        resp = requests.post(f"{base}/api/embeddings", json={
-            "model": cfg["ollama"].get("embed_model", "nomic-embed-text"),
-            "prompt": "\n".join(texts),
-        }, timeout=120)
-        resp.raise_for_status()
-        # Ollama returns one vector per request with this endpoint; batch via loop
-        vectors = []
-        for t in texts:
-            r = requests.post(f"{base}/api/embeddings", json={
-                "model": cfg["ollama"].get("embed_model", "nomic-embed-text"),
-                "prompt": t,
-            }, timeout=120)
-            r.raise_for_status()
-            vectors.append(r.json()["embedding"])
-        return vectors
-
-
-embedder = Embedder(
-    model_name=cfg["embedder"]["model"],
-    device=cfg["embedder"]["device"],
-    batch_size=cfg["embedder"]["batch_size"],
-)
+from rag_core import Embedder, document_schema, sql_string, table_exists, upsert_rows
 
 
 # ---------------------------------------------------------------------------
@@ -129,11 +65,17 @@ def chunk_lines(lines: list[str], max_tokens: int, overlap: int) -> list[str]:
         count += len(line.split())
         if count >= max_tokens:
             out.append("\n".join(bucket))
-            # overlap: keep last `overlap` lines in next bucket
-            if overlap > 0 and len(bucket) > overlap:
-                keep = bucket[-overlap:]
-                bucket = keep[:]
-                count = sum(len(l.split()) for l in bucket)
+            # Keep approximately `overlap` words, working backward by line.
+            if overlap > 0:
+                keep: list[str] = []
+                kept_words = 0
+                for previous in reversed(bucket):
+                    keep.append(previous)
+                    kept_words += len(previous.split())
+                    if kept_words >= overlap:
+                        break
+                bucket = list(reversed(keep))
+                count = kept_words
             else:
                 bucket = []
                 count = 0
@@ -167,7 +109,6 @@ def chunk_kicad(text: str) -> list[str]:
             current.append(line)
             continue
         # count parens at start of stripped content
-        opens = stripped.count("(") - stripped.count(")")
         # rough block split: lines starting with "(" at depth 0 start a new block
         if depth == 0 and stripped.startswith("("):
             if current:
@@ -200,20 +141,21 @@ def chunk_pdf_pages(pdf_path: Path) -> list[str]:
 # ---------------------------------------------------------------------------
 # OCR
 # ---------------------------------------------------------------------------
-def ocr_image(img_path: Path, langs: list[str], gpu: bool, device: int,
-              batch_size: int = 4) -> str:
+def ocr_image(img_path: Path, ocr_cfg: dict[str, Any]) -> str:
     """OCR an image; returns text or a short note if nothing found."""
     # EasyOCR for GPU
-    if cfg["downloads"]["ocr"]["engine"] == "easyocr" and gpu:
+    langs = ocr_cfg.get("languages", ["en"])
+    gpu = bool(ocr_cfg.get("gpu", False))
+    if ocr_cfg.get("engine", "tesseract") == "easyocr":
         try:
             import easyocr
         except ImportError:
             print("easyocr not installed — pip install easyocr")
             return f"[OCR SKIPPED: easyocr missing for {img_path.name}]"
         reader = easyocr.Reader(
-            langs, gpu=gpu, cuda_device=device, verbose=False,
+            langs, gpu=gpu, verbose=False,
         )
-        results = reader.readtext(str(img_path), batch_size=batch_size)
+        results = reader.readtext(str(img_path), batch_size=int(ocr_cfg.get("batch_size", 4)))
         texts = [r[1] for r in results if r[1].strip()]
         return "\n".join(texts) if texts else f"[OCR: no text found in {img_path.name}]"
     else:
@@ -226,7 +168,9 @@ def ocr_image(img_path: Path, langs: list[str], gpu: bool, device: int,
             return f"[OCR SKIPPED: tesseract missing for {img_path.name}]"
         try:
             img = Image.open(str(img_path))
-            txt = pytesseract.image_to_string(img, lang=cfg["downloads"]["ocr"]["tesseract"]["lang"])
+            txt = pytesseract.image_to_string(
+                img, lang=ocr_cfg.get("tesseract", {}).get("lang", "eng")
+            )
             return txt.strip() or f"[OCR: no text found in {img_path.name}]"
         except Exception as e:
             return f"[OCR ERROR: {img_path.name}: {e}]"
@@ -235,24 +179,35 @@ def ocr_image(img_path: Path, langs: list[str], gpu: bool, device: int,
 # ---------------------------------------------------------------------------
 # File routing
 # ---------------------------------------------------------------------------
-def should_index(path: Path, extensions: list[str], exclude_dirs: list[str]) -> bool:
-    if not path.is_file():
+def should_index(path: Path, root: Path, source_cfg: dict[str, Any]) -> bool:
+    if path.is_symlink() or not path.is_file():
         return False
-    # exclude dirs
-    parts = path.parts
-    for ex in exclude_dirs:
-        if ex in parts:
+    relative = path.relative_to(root)
+    includes = source_cfg.get("include", ["*"])
+    if includes and not any(relative.match(pattern) or fnmatch.fnmatch(relative.parts[0], pattern)
+                            for pattern in includes):
+        return False
+    for pattern in source_cfg.get("exclude", []):
+        if relative.match(pattern) or relative.match(f"**/{pattern}") or any(
+            fnmatch.fnmatch(part, pattern) for part in relative.parts
+        ):
             return False
-    if path.suffix.lower() not in extensions:
+    if path.suffix.lower() not in source_cfg["extensions"]:
         return False
     # size sanity
     mb = path.stat().st_size / (1024 * 1024)
     if mb > 100:
         return False  # skip giant files
+    if path.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp", ".bmp"}:
+        ocr_cfg = source_cfg.get("ocr", {})
+        if mb < float(ocr_cfg.get("min_image_mb", 0)):
+            return False
+        if mb > float(ocr_cfg.get("max_image_mb", 100)):
+            return False
     return True
 
 
-def read_file_text(path: Path, extensions: list[str], cfg: dict) -> list[tuple[str, str]]:
+def read_file_text(path: Path, source_cfg: dict[str, Any], cfg: dict[str, Any]) -> list[tuple[str, str]]:
     """Returns list of (chunk, source_desc) tuples."""
     ext = path.suffix.lower()
     chunks: list[tuple[str, str]] = []
@@ -263,13 +218,9 @@ def read_file_text(path: Path, extensions: list[str], cfg: dict) -> list[tuple[s
         return chunks
 
     if ext in {".png", ".jpg", ".jpeg", ".webp", ".bmp"}:
-        ocr_cfg = cfg.get("downloads", {}).get("ocr", {})
+        ocr_cfg = source_cfg.get("ocr", {})
         if ocr_cfg.get("enabled", False):
-            langs = ocr_cfg.get("languages", ["en"])
-            gpu = ocr_cfg.get("gpu", False)
-            device = ocr_cfg.get("gpu_device", 0)
-            bs = ocr_cfg.get("batch_size", 4)
-            txt = ocr_image(path, langs, gpu, device, bs)
+            txt = ocr_image(path, ocr_cfg)
             chunks.append((txt, f"ocr:{path.name}"))
         else:
             chunks.append((f"[IMAGE: {path.name} — OCR disabled]", f"img:{path.name}"))
@@ -302,35 +253,32 @@ def read_file_text(path: Path, extensions: list[str], cfg: dict) -> list[tuple[s
 # ---------------------------------------------------------------------------
 # Indexing
 # ---------------------------------------------------------------------------
-def make_table_schema():
-    import pyarrow as pa
-    return pa.schema([
-        pa.field("id", pa.string()),
-        pa.field("text", pa.string()),
-        pa.field("source", pa.string()),
-        pa.field("path", pa.string()),
-        pa.field("kind", pa.string()),       # code|text|kicad|pdf|ocr|img
-        pa.field("project", pa.string()),
-        pa.field("embedding", pa.list_(pa.float32(), 384)),  # MiniLM dim
-    ])
+def _open_table(db: Any, table_name: str, dimension: int, rebuild: bool = False):
+    if rebuild and table_exists(db, table_name):
+        db.drop_table(table_name)
+    if table_exists(db, table_name):
+        table = db.open_table(table_name)
+        fields = {field.name: field for field in table.schema}
+        if "generation" not in fields:
+            raise RuntimeError(
+                f"Table '{table_name}' uses the old schema; rerun with --rebuild."
+            )
+        vector_size = getattr(fields["embedding"].type, "list_size", None)
+        if vector_size != dimension:
+            raise RuntimeError(
+                f"Table '{table_name}' has {vector_size}-dimensional vectors, but the "
+                f"configured embedder returned {dimension}; rerun with --rebuild."
+            )
+        return table, table.schema
+    schema = document_schema(dimension)
+    return db.create_table(table_name, schema=schema), schema
 
 
-def upsert_table(db: lancedb.LanceDBConnection, table_name: str, rows: list[dict]):
-    schema = make_table_schema()
-    try:
-        tbl = db.create_table(table_name, schema=schema, exist_ok=True)
-    except Exception:
-        tbl = db.open_table(table_name)
-    if len(rows) == 0:
-        return
-    import pyarrow as pa
-    table = pa.Table.from_pylist(rows, schema=schema)
-    tbl.add(table)
-
-
-def index_dir(root: Path, table_name: str, project_label: str,
-              extensions: list[str], exclude_dirs: list[str],
-              cfg: dict, dry_run: bool = False) -> int:
+def index_dir(source_cfg: dict[str, Any], table_name: str, project_label: str,
+              cfg: dict[str, Any], embedder: Embedder | None = None,
+              db: Any = None, dry_run: bool = False, rebuild: bool = False,
+              verbose_dry_run: bool = False) -> int:
+    root = Path(source_cfg["root"])
     root = root.expanduser().resolve()
     if not root.exists():
         print(f"SKIP: {root} does not exist")
@@ -339,102 +287,144 @@ def index_dir(root: Path, table_name: str, project_label: str,
     # collect files
     files: list[Path] = []
     for path in root.rglob("*"):
-        if should_index(path, extensions, exclude_dirs):
-            rel = path.relative_to(root)
-            # skip if too big
-            if path.stat().st_size / (1024*1024) > 100:
-                continue
+        if should_index(path, root, source_cfg):
             files.append(path)
 
     print(f"Found {len(files)} files to index under {root}")
     if dry_run:
-        for f in files:
+        shown = files if verbose_dry_run else files[:50]
+        for f in shown:
             print("  DRY:", f)
+        if len(shown) < len(files):
+            print(f"  ... {len(files) - len(shown)} more files; add --verbose to show all")
         return 0
 
-    db = lancedb.connect(cfg["store"]["dir"])
-    rows: list[dict] = []
+    if db is None or embedder is None:
+        raise RuntimeError("index_dir requires a database and embedder when not in dry-run mode")
+    if rebuild and table_exists(db, table_name):
+        db.drop_table(table_name)
+        rebuild = False
+    pending: list[dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
+    table = None
+    schema = None
+    generation = uuid.uuid4().hex
     t0 = time.time()
     processed = 0
     errors = 0
+    chunk_count = 0
+    duplicate_count = 0
+    seen_ids: set[str] = set()
+    embed_batch_size = max(1, int(cfg["embedder"].get("batch_size", 64)))
+
+    def flush_embeddings() -> None:
+        nonlocal table, schema, rebuild, chunk_count, rows
+        if not pending:
+            return
+        embeddings = embedder.embed([item["text"] for item in pending])
+        if len(embeddings) != len(pending):
+            raise RuntimeError(
+                f"Embedder returned {len(embeddings)} vectors for {len(pending)} chunks"
+            )
+        for item, embedding in zip(pending, embeddings):
+            item["embedding"] = embedding
+            rows.append(item)
+            chunk_count += 1
+        pending.clear()
+        if len(rows) >= 2000:
+            if table is None:
+                table, schema = _open_table(
+                    db, table_name, len(rows[0]["embedding"]), rebuild
+                )
+                rebuild = False
+            upsert_rows(table, rows, schema)
+            rows = []
 
     for path in tqdm(files, desc=f"indexing {root.name}", unit="file"):
         try:
-            chunks = read_file_text(path, extensions, cfg)
-        except Exception as e:
+            chunks = read_file_text(path, source_cfg, cfg)
+        except Exception as exc:
             errors += 1
+            tqdm.write(f"WARN: failed to read {path}: {exc}")
             continue
         if not chunks:
             continue
-        # batch embed
-        texts = [c[0] for c in chunks]
-        embs = embedder.embed(texts)
-        for (text, src), emb in zip(chunks, embs):
+        for text, src in chunks:
             doc_id = hashlib.sha256(f"{path}|{src}|{text}".encode()).hexdigest()[:16]
-            rows.append({
+            if doc_id in seen_ids:
+                duplicate_count += 1
+                continue
+            seen_ids.add(doc_id)
+            pending.append({
                 "id": doc_id,
                 "text": text,
                 "source": src,
                 "path": str(path),
                 "kind": src.split(":")[0],
                 "project": project_label,
-                "embedding": emb,
+                "generation": generation,
             })
+            if len(pending) >= embed_batch_size:
+                flush_embeddings()
         processed += 1
-        # flush periodically
-        if len(rows) >= 2000:
-            upsert_table(db, table_name, rows)
-            rows = []
 
+    flush_embeddings()
     if rows:
-        upsert_table(db, table_name, rows)
+        if table is None:
+            table, schema = _open_table(db, table_name, len(rows[0]["embedding"]), rebuild)
+        upsert_rows(table, rows, schema)
+
+    if table is None and table_exists(db, table_name):
+        table = db.open_table(table_name)
+        if "generation" not in table.schema.names:
+            raise RuntimeError(f"Table '{table_name}' uses the old schema; rerun with --rebuild.")
+    if table is not None and errors == 0:
+        table.delete(
+            f"project = {sql_string(project_label)} AND generation != {sql_string(generation)}"
+        )
+    elif errors:
+        print("Preserving previous-generation chunks because one or more files failed.")
 
     elapsed = time.time() - t0
-    print(f"Indexed {processed} files, {errors} errors, {len(rows)} final chunks "
+    print(f"Indexed {processed} files, {errors} errors, {chunk_count} unique chunks "
           f"→ table '{table_name}' in {elapsed:.1f}s")
-    return len(rows)
+    if duplicate_count:
+        print(f"Skipped {duplicate_count} duplicate chunks with identical source text.")
+    return chunk_count
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Route A indexer")
+    parser = argparse.ArgumentParser(description="Underlight local RAG indexer")
     parser.add_argument("--table", choices=["projects", "downloads", "home", "all"],
                         default="all", help="which table to index")
     parser.add_argument("--dry-run", action="store_true",
                         help="list files without indexing")
+    parser.add_argument("--rebuild", action="store_true",
+                        help="replace incompatible/old tables before indexing")
+    parser.add_argument("--verbose", action="store_true",
+                        help="show every matching file during a dry run")
     args = parser.parse_args()
 
+    cfg = load_config()
+    embedder = None
+    db = None
+    if not args.dry_run:
+        import lancedb
+
+        embedder = Embedder(cfg)
+        db = lancedb.connect(cfg["store"]["dir"])
+
     if args.table in ("projects", "all"):
-        index_dir(
-            Path(cfg["projects"]["root"]),
-            cfg["store"]["tables"]["projects"],
-            "projects",
-            cfg["projects"]["extensions"],
-            cfg["projects"].get("exclude", []),
-            cfg,
-            dry_run=args.dry_run,
-        )
+        index_dir(cfg["projects"], cfg["store"]["tables"]["projects"], "projects",
+                  cfg, embedder, db, args.dry_run, args.rebuild, args.verbose)
 
     if args.table in ("downloads", "all"):
-        index_dir(
-            Path(cfg["downloads"]["root"]),
-            cfg["store"]["tables"]["downloads"],
-            "downloads",
-            cfg["downloads"]["extensions"],
-            cfg["downloads"].get("exclude", []),
-            cfg,
-            dry_run=args.dry_run,
-        )
+        index_dir(cfg["downloads"], cfg["store"]["tables"]["downloads"], "downloads",
+                  cfg, embedder, db, args.dry_run, args.rebuild, args.verbose)
 
     if args.table in ("home", "all"):
-        index_dir(
-            Path(cfg["home"]["root"]),
-            cfg["store"]["tables"]["home"],
-            "home",
-            cfg["home"]["extensions"],
-            cfg["home"].get("exclude", []),
-            cfg,
-            dry_run=args.dry_run,
-        )
+        index_dir(cfg["home"], cfg["store"]["tables"]["home"], "home",
+                  cfg, embedder, db, args.dry_run, args.rebuild, args.verbose)
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@ sudo apt-get install -y \
   brightnessctl \
   playerctl \
   pavucontrol \
+  mesa-utils \
   screen \
   switcheroo-control \
   network-manager \

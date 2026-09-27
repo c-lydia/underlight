@@ -72,6 +72,7 @@ packages=(
   kitty
   libnotify
   mako
+  mesa-utils
   nautilus
   networkmanager
   network-manager-applet
@@ -113,7 +114,6 @@ sudo pacman -Syu --needed "${packages[@]}"
 sudo systemctl enable --now NetworkManager.service
 
 data_root="${HOME:?}/.local/share/underlight"
-config_root="${XDG_CONFIG_HOME:-$HOME/.config}/underlight"
 venv_root="$data_root/venvs"
 neovim_checkout="$data_root/neovim_config"
 
@@ -160,18 +160,7 @@ fi
 
 if [[ $with_rag == true ]]; then
   printf '\nCreating the optional RAG Python environment...\n'
-  rag_source="$data_root/rag_pipeline"
-  rag_venv="$venv_root/rag_pipeline"
-  python -m venv "$rag_venv"
-  "$rag_venv/bin/python" -m pip install --upgrade pip
-  "$rag_venv/bin/python" -m pip install -r "$rag_source/requirements.txt"
-  mkdir -p -- "$config_root"
-  if [[ ! -e $config_root/rag.yaml ]]; then
-    cp -- "$rag_source/.ragconfig.example.yaml" "$config_root/rag.yaml"
-    printf 'Created editable RAG config: %s\n' "$config_root/rag.yaml"
-  else
-    printf 'Preserving existing RAG config: %s\n' "$config_root/rag.yaml"
-  fi
+  "$HOME/.local/bin/underlight-rag" setup
 fi
 
 printf '%s\n' \

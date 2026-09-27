@@ -4,10 +4,10 @@ Dense notes for the person implementing/fixing this. Not a user doc — see READ
 
 ## Why LanceDB
 
-- File-based, no server process. Store is a directory: `~/.rag_store/`.
-- Upserts by document ID — re-running indexer is idempotent.
-- `search(vector).limit(N)` returns distance; we convert to a 0–1 score: `score = 1.0 - distance`.
-- Schema: `id, text, source, path, kind, project, embedding` (384-dim MiniLM).
+- File-based, no server process. Store is a directory below Underlight's local data directory.
+- Merge-insert by document ID makes re-running the indexer idempotent; a generation marker removes stale chunks after a successful pass.
+- Retrieval explicitly uses cosine distance and reports cosine similarity as `1.0 - distance`.
+- Schema: `id, text, source, path, kind, project, generation, embedding`. The vector dimension comes from the configured model.
 - One table per source (projects / downloads / chat) so each can be re-indexed independently.
 
 ## Chunking details
@@ -25,7 +25,7 @@ One chunk per page via `pymupdf` (`fitz`). Each chunk prefixed with `[PAGE N of 
 
 ### Images
 If `downloads.ocr.enabled: true`:
-- EasyOCR on CUDA (RTX 3050): `easyocr.Reader(langs, gpu=True, cuda_device=0)`. Reads text from the image.
+- EasyOCR on CUDA (RTX 3050): `easyocr.Reader(langs, gpu=True)`. Reads text from the image.
 - Tesseract CPU fallback: `pytesseract.image_to_string`.
 - If OCR finds nothing → `[OCR: no text found in filename]`.
 - If OCR disabled → `[IMAGE: filename — OCR disabled]` (metadata-only record).
@@ -37,15 +37,16 @@ Split by paragraph (`\n\s*\n`), chunk paragraphs over `max_tokens` by lines.
 
 ## Embedder
 
-CPU: `sentence-transformers/all-MiniLM-L6-v2`, 384-dim, ~80MB, fast on CPU.
-
-Ollama alternative (commented in config):
+The default is Ollama's local `nomic-embed-text`, which keeps PyTorch out of
+the base environment:
 ```yaml
 embedder:
   model: "nomic-embed-text"
   device: "ollama"
 ```
-The indexer's `Embedder` class handles both — `device: "ollama"` hits `/api/embeddings` per text. Slower for bulk indexing but keeps everything in Ollama.
+The shared lazy `Embedder` also supports the optional
+`sentence-transformers/all-MiniLM-L6-v2` CPU model. `device: "ollama"` uses the batched
+`/api/embed` endpoint with a compatibility fallback to `/api/embeddings`.
 
 ## Ollama call
 
@@ -94,7 +95,7 @@ how do I route a differential pair in kicad?
 
 ## Chat tracker
 
-- JSONL log per project: `~/.rag_chatlogs/<project>.jsonl`.
+- JSONL log per project: `~/.local/state/underlight/rag-chatlogs/<project>.jsonl`.
 - Each message: `{timestamp, project, role, text, metadata}`.
 - Each message also upserted into `idx_chat` LanceDB table with embedding.
 - `query_chat(query, top_k, project)` → similarity search on `idx_chat`.
@@ -108,7 +109,9 @@ Default tables: `idx_projects`, `idx_downloads`, `idx_chat`.
 
 ## File indexer idempotency
 
-Document ID = `sha256(path|source|text)[:16]`. Same content → same ID → LanceDB upsert replaces it. Re-running the indexer is safe.
+Document ID = `sha256(path|source|text)[:16]`. Same content means the same ID,
+so merge-insert updates it. Every completed pass removes rows from earlier
+generations, including chunks for files that were deleted or excluded.
 
 ## Docker / container note
 
@@ -120,7 +123,7 @@ environment, and then run the indexer.
 
 OpenCode is available as an autonomous coding worker for heavy implementation tasks (refactoring, writing tests, building features). The skill is at `autonomous-ai-agents/opencode`. Use `opencode run '...'` for one-shot tasks, or `opencode` with `background=true, pty=true` for interactive sessions.
 
-Not wired into the RAG pipeline yet — future: assistant could delegate code tasks to OpenCode via the HTTP API.
+`underlight-rag opencode` launches it with the RAG environment and config.
 
 ## Future gaps
 

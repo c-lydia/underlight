@@ -1,5 +1,8 @@
 # Underlight
 
+Planned reliability, portability, privacy, and workflow improvements are
+tracked in [`ROADMAP.md`](ROADMAP.md).
+
 Personal Hyprland desktop configuration for Ubuntu and EndeavourOS. The
 repository mirrors paths below the home directory so the files can be restored
 with symbolic links.
@@ -283,6 +286,16 @@ game, renderer, CUDA UI, or other graphics-heavy application on NVIDIA with:
 underlight-gpu-run COMMAND [ARGUMENT ...]
 ```
 
+For the standard OpenGL offload check, install `mesa-utils` and run:
+
+```bash
+underlight-gpu-run glxinfo -B
+```
+
+The EndeavourOS bootstrap and Ubuntu extras installer include that package.
+If any requested program is absent, the helper now reports the missing command
+before invoking `switcherooctl`.
+
 The helper prefers `switcherooctl` and falls back to NVIDIA's PRIME render
 offload variables. Check the driver, DRM modesetting, render nodes, and PRIME
 discovery with `underlight-gpu-check`, or check the whole workstation with
@@ -304,8 +317,10 @@ Underlight only supplies desktop entry points around it:
 underlight-ai menu
 underlight-ai status
 underlight-ai opencode ~/projects/example
+underlight-ai zen ~/projects/example
 underlight-ai hermes ~/projects/example
 underlight-ai ollama MODEL
+underlight-ai rag
 ```
 
 Selecting an interactive AI workload applies the opt-in performance profile;
@@ -317,6 +332,88 @@ The Neovim workbench exposes the same path through `:GpuRun`, `:GpuInfo`,
 `:LaptopControl`, `:AI`, `:OpenCode`, `:Hermes`, `:OllamaInfo`,
 `:PowerProfile`, and `:UnderlightDoctor`. Its `nvim-workspace` launcher
 automatically uses kitty under Hyprland.
+
+## Local RAG pipeline
+
+The optional RAG pipeline searches your own code, Markdown, text, JSON/YAML,
+KiCad files, PDFs, and optionally OCR text from images. It stores embeddings in
+a local LanceDB database, retrieves relevant chunks, and gives those chunks to
+your configured local Ollama model. Re-indexing updates existing chunks and
+removes content that was deleted or newly excluded.
+
+On Ubuntu, run the normal installer and then create the isolated environment:
+
+```bash
+./install.sh
+underlight-rag setup
+```
+
+On EndeavourOS, `./install-endeavouros.sh --with-rag` performs both steps and
+also installs/enables Ollama. Neither route pulls an Ollama model or indexes
+files automatically. OCR dependencies are opt-in with
+`underlight-rag setup --with-ocr`. The lean default uses Ollama's
+`nomic-embed-text`; pull it once with `ollama pull nomic-embed-text`.
+
+Edit and verify the source paths before the first index:
+
+```bash
+underlight-rag config
+underlight-rag status
+underlight-rag index --table projects --dry-run
+underlight-rag index --table projects
+underlight-rag ask "summarize the ROS 2 nodes in my projects"
+```
+
+The available sources are `projects`, `downloads`, `home`, and `all`. A dry
+run does not load or download the embedding model. Use `--rebuild` after
+changing the embedder or upgrading a table created by an older pipeline:
+
+```bash
+underlight-rag index --table projects --rebuild
+```
+
+Other entry points include:
+
+```bash
+underlight-rag menu
+underlight-rag direct "ask Ollama without retrieval"
+underlight-rag ask "what did we decide?" --remember --project robot
+underlight-rag chat query "DDS choice" --project robot
+underlight-rag chat list
+underlight-rag chat rebuild
+underlight-rag server
+underlight-rag mcp
+underlight-rag opencode
+```
+
+The MCP bridge makes the local index available as read-only search, local
+answer, and status tools in both OpenCode and Hermes. OpenCode Zen setup still
+requires your own account: launch OpenCode, use `/connect`, choose **OpenCode
+Zen**, then use `/models` to select a Free model. `underlight-ai zen` currently
+defaults to `opencode/mimo-v2.6-flash-free`; pass another model as its second
+argument or set `UNDERLIGHT_ZEN_MODEL`. Run `opencode models opencode --refresh
+--verbose` for the live list.
+
+When a cloud agent calls `search_local_knowledge`, the returned file excerpts
+leave the local-only boundary and are sent to that agent's model provider.
+`ask_local_assistant` performs retrieval and generation through local Ollama,
+while `underlight-rag ask` keeps the whole interaction local. See the detailed
+RAG README for the OpenCode and Hermes MCP configuration and verification.
+
+The Wofi RAG menu is also available from **Local RAG** in
+`underlight-ai menu`. Neovim provides `:RagAsk`, `:RagIndex`,
+`:RagIndex!` (full rebuild), and `:RagStatus`; `Space a r` opens the question
+prompt with the default Space leader.
+
+The editable config is `~/.config/underlight/rag.yaml`. Runtime data is kept
+outside Git: the vector store is under
+`~/.local/share/underlight/rag-store`, the environment under
+`~/.local/share/underlight/venvs/rag_pipeline`, and remembered chat logs under
+`~/.local/state/underlight/rag-chatlogs`. The HTTP server binds to
+`127.0.0.1:8080` by default and has no authentication, so do not expose it to
+an untrusted network. The full config, OCR, chat, API, and embedding-model
+reference is in
+[`rag_pipeline/README.md`](.local/share/underlight/rag_pipeline/README.md).
 
 ## Persistent ROS 2 and SSH shells
 
@@ -478,14 +575,6 @@ ROS 2 DDS discovery usually relies on multicast, which ordinary NAT does not
 forward between the hotspot and upstream network. Use a ROS 2 Discovery Server,
 explicit/static peers, or a routing bridge such as Zenoh when ROS nodes must
 discover one another across these subnets.
-
-When the optional RAG component is installed, review its config and start with
-a dry run:
-
-```bash
-underlight-rag index --table projects --dry-run
-underlight-rag ask "summarize this project"
-```
 
 ## Background applications
 

@@ -4,7 +4,7 @@ set -euo pipefail
 
 usage() {
   printf '%s\n' \
-    'Usage: underlight-ai menu|status|opencode|hermes|ollama [DIRECTORY|MODEL]' \
+    'Usage: underlight-ai menu|status|opencode|zen|hermes|ollama|rag [DIRECTORY|MODEL]' \
     '' \
     'Launch the existing Ollama, OpenCode, and Hermes setup from Underlight.'
 }
@@ -43,22 +43,32 @@ status() {
   else
     printf '\nHermes: not installed\n'
   fi
+  if command -v underlight-rag >/dev/null 2>&1; then
+    printf '\n'
+    underlight-rag status
+  else
+    printf '\nUnderlight RAG: launcher not installed\n'
+  fi
 }
 
 menu() {
   command -v wofi >/dev/null 2>&1 || { printf 'underlight-ai: wofi is not installed\n' >&2; return 1; }
   choice=$(printf '%s\n' \
     'OpenCode' \
+    'OpenCode Zen (free)' \
     'Hermes' \
     'Ollama model' \
+    'Local RAG' \
     'AI stack status' \
     'AI performance profile' \
     'Balanced profile' |
     wofi --dmenu --insensitive --prompt 'AI tools') || return
   case $choice in
     OpenCode) exec "$0" opencode ;;
+    'OpenCode Zen (free)') exec "$0" zen ;;
     Hermes) exec "$0" hermes ;;
     'Ollama model') exec "$0" ollama ;;
+    'Local RAG') exec underlight-rag menu ;;
     'AI stack status') terminal underlight-ai-status 'AI stack status' "$HOME" sh -lc 'underlight-ai status; printf "\nPress Enter to close..."; read -r _' ;;
     'AI performance profile') exec underlight-profile ai ;;
     'Balanced profile') exec underlight-profile balanced ;;
@@ -78,6 +88,14 @@ case $command in
     underlight-profile ai >/dev/null
     terminal io.github.chhenglydia.OpenCode OpenCode "$directory" opencode "$directory"
     ;;
+  zen)
+    directory=${1:-$PWD}
+    model=${2:-${UNDERLIGHT_ZEN_MODEL:-opencode/mimo-v2.6-flash-free}}
+    [[ -d $directory ]] || { printf 'underlight-ai: not a directory: %s\n' "$directory" >&2; exit 2; }
+    command -v opencode >/dev/null 2>&1 || { printf 'underlight-ai: opencode is not installed\n' >&2; exit 1; }
+    underlight-profile ai >/dev/null
+    terminal io.github.chhenglydia.OpenCode 'OpenCode Zen (free)' "$directory" opencode "$directory" --model "$model"
+    ;;
   hermes)
     directory=${1:-$PWD}
     [[ -d $directory ]] || { printf 'underlight-ai: not a directory: %s\n' "$directory" >&2; exit 2; }
@@ -95,6 +113,9 @@ case $command in
     [[ -n $model ]] || exit 0
     underlight-profile ai >/dev/null
     terminal io.github.chhenglydia.Ollama "Ollama · $model" "$PWD" ollama run "$model"
+    ;;
+  rag)
+    if (($#)); then exec underlight-rag "$@"; else exec underlight-rag menu; fi
     ;;
   *) usage >&2; exit 2 ;;
 esac

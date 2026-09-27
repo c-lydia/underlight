@@ -1,64 +1,50 @@
-"""
-Route A — assistant.py (corrected for LanceDB version)
-Fixes:
-- db.exists_table() doesn't exist -> use _table_exists() helper
-- list_tables() returns tuples, extract name string
-"""
+"""Retrieve local context and ask the configured Ollama model."""
 from __future__ import annotations
 
 import argparse
-import json
-import os
 import sys
 import time
-from pathlib import Path
-from typing import Any
 
 import requests
 from config_loader import load_config
+from rag_core import Embedder, cosine_score, table_exists
 
 cfg = load_config()
 
-OLLAMA_URL = f"{cfg['ollama']['base_url']}/api/generate"
+OLLAMA_URL = f"{cfg['ollama']['base_url'].rstrip('/')}/api/generate"
 OLLAMA_TIMEOUT = cfg["ollama"].get("timeout_s", 120)
 
-from sentence_transformers import SentenceTransformer
-
-embedder = SentenceTransformer(
-    cfg["embedder"]["model"],
-    device=cfg["embedder"]["device"],
-)
-
-import lancedb
+_embedder: Embedder | None = None
 
 
-def _table_exists(db, name: str) -> bool:
-    """Check if a LanceDB table exists. list_tables() may return str or tuple."""
-    names = db.list_tables()
-    for n in names:
-        if isinstance(n, tuple):
-            if n and n[0] == name:
-                return True
-        elif isinstance(n, str) and n == name:
-            return True
-    return False
+def get_embedder() -> Embedder:
+    global _embedder
+    if _embedder is None:
+        _embedder = Embedder(cfg)
+    return _embedder
 
 
 def retrieve(query: str, tables: list[str], top_k: int = 6,
              min_score: float = 0.25) -> list[dict]:
     """Search multiple LanceDB tables, return scored chunks."""
+    import lancedb
+
     db = lancedb.connect(cfg["store"]["dir"])
-    emb = embedder.encode([query], convert_to_numpy=True)[0].tolist()
+    resolved_tables = [
+        (name, cfg["store"]["tables"].get(name, name)) for name in tables
+    ]
+    resolved_tables = [item for item in resolved_tables if table_exists(db, item[1])]
+    if not resolved_tables:
+        return []
+    emb = get_embedder().embed([query])[0]
     results: list[dict] = []
 
-    for tbl_name in tables:
-        full_name = cfg["store"]["tables"].get(tbl_name, tbl_name)
-        if not _table_exists(db, full_name):
-            continue
+    for tbl_name, full_name in resolved_tables:
         tbl = db.open_table(full_name)
-        hits = tbl.search(emb).limit(top_k * 2).to_list()
+        hits = (tbl.search(emb, vector_column_name="embedding")
+                .distance_type("cosine").limit(top_k * 2).to_list())
         for h in hits:
-            score = 1.0 - (h.get("_distance", 1.0) or 1.0)
+            score = cosine_score(h.get("_distance"))
             if score < min_score:
                 continue
             results.append({
@@ -145,7 +131,8 @@ def ask_ollama(prompt: str, model: str | None = None,
 def cmd_answer(args):
     t0 = time.time()
 
-    tables = args.tables or cfg["assistant"]["search_tables"]
+    tables = ([item.strip() for item in args.tables.split(",") if item.strip()]
+              if args.tables else cfg["assistant"]["search_tables"])
     top_k = args.top_k or cfg["ollama"]["retrieval"]["top_k"]
     min_score = cfg["ollama"]["retrieval"].get("min_score", 0.25)
 
@@ -163,13 +150,15 @@ def cmd_answer(args):
     chat_history = None
     if args.remember:
         print("[2/3] Fetching chat history ...", file=sys.stderr)
+        from chat_tracker import query_chat
+
         chat_history = query_chat(args.query, top_k=6, project=args.project)
         print(f"  -> {len(chat_history) if chat_history else 0} past messages", file=sys.stderr)
 
     prompt = build_prompt(args.query, chunks, chat_history)
 
     print(f"[3/3] Asking Ollama ({cfg['ollama']['model']}) ...", file=sys.stderr)
-    answer = ask_ollama(prompt)
+    answer = ask_ollama(prompt, max_context=cfg["ollama"].get("max_context_tokens", 4096))
     elapsed = time.time() - t0
     print(f"\n{'='*60}")
     print(f"[{elapsed:.1f}s]")
@@ -185,7 +174,7 @@ def cmd_answer(args):
         print(f"\n[logged to chat project '{args.project or cfg['chat']['default_project']}']",
               file=sys.stderr)
     elif args.remember:
-        print("\n[remembered: set --remember to auto-log]", file=sys.stderr)
+        print("\n[chat auto-log is disabled in rag.yaml]", file=sys.stderr)
 
 
 def cmd_ask_ollama(args):
@@ -196,7 +185,7 @@ def cmd_ask_ollama(args):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Route A assistant CLI")
+    parser = argparse.ArgumentParser(description="Underlight local RAG assistant")
     sub = parser.add_subparsers(dest="cmd")
 
     p_answer = sub.add_parser("answer", help="Query with retrieval + Ollama")

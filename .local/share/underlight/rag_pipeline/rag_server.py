@@ -1,5 +1,5 @@
 """
-Route A — rag_server.py
+Underlight RAG HTTP server.
 Lightweight HTTP API for the assistant: query → retrieve → Ollama → answer.
 Useful for Hermes tool calls, curl, or any client.
 
@@ -23,11 +23,9 @@ import argparse
 import json
 import sys
 import time
-from pathlib import Path
-from typing import Any
-
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from config_loader import load_config
+from rag_core import table_names
 
 
 cfg = load_config()
@@ -35,7 +33,7 @@ cfg = load_config()
 # ---------------------------------------------------------------------------
 # Embedder + retriever (import from assistant)
 # ---------------------------------------------------------------------------
-from assistant import retrieve, ask_ollama, build_prompt, embedder
+from assistant import retrieve, ask_ollama, build_prompt
 
 
 # ---------------------------------------------------------------------------
@@ -55,13 +53,29 @@ def log_chat(project: str, role: str, text: str) -> dict:
 class RagHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/health":
+            ollama_ok = False
+            tables: list[str] = []
+            try:
+                import requests
+                response = requests.get(
+                    f"{cfg['ollama']['base_url'].rstrip('/')}/api/tags", timeout=2
+                )
+                ollama_ok = response.ok
+            except Exception:
+                pass
+            try:
+                import lancedb
+                tables = table_names(lancedb.connect(cfg["store"]["dir"]))
+            except Exception:
+                pass
             self._json(200, {
-                "ok": True,
+                "ok": ollama_ok,
+                "ollama_ok": ollama_ok,
                 "ollama_model": cfg["ollama"]["model"],
                 "ollama_base": cfg["ollama"]["base_url"],
                 "embedder": cfg["embedder"]["model"],
                 "store_dir": cfg["store"]["dir"],
-                "store_tables": list(cfg["store"]["tables"].values()),
+                "store_tables": tables,
             })
         else:
             self._json(404, {"error": "unknown endpoint"})
@@ -89,7 +103,16 @@ class RagHandler(BaseHTTPRequestHandler):
             return
 
         tables = data.get("tables") or cfg["assistant"]["search_tables"]
-        top_k = data.get("top_k") or cfg["ollama"]["retrieval"]["top_k"]
+        if not isinstance(tables, list) or not all(isinstance(item, str) for item in tables):
+            self._json(400, {"error": "tables must be a list of names"})
+            return
+        try:
+            top_k = max(1, min(50, int(
+                data.get("top_k") or cfg["ollama"]["retrieval"]["top_k"]
+            )))
+        except (TypeError, ValueError):
+            self._json(400, {"error": "top_k must be an integer"})
+            return
         min_score = cfg["ollama"]["retrieval"].get("min_score", 0.25)
         remember = data.get("remember", False)
         project = data.get("project") or cfg["chat"]["default_project"]
@@ -125,6 +148,9 @@ class RagHandler(BaseHTTPRequestHandler):
         project = data.get("project", cfg["chat"]["default_project"])
         role = data.get("role", "user")
         text = data.get("text", "")
+        if role not in {"user", "assistant", "system"}:
+            self._json(400, {"error": "role must be user, assistant, or system"})
+            return
         if not text:
             self._json(400, {"error": "text required"})
             return
@@ -148,13 +174,13 @@ class RagHandler(BaseHTTPRequestHandler):
 # CLI
 # ---------------------------------------------------------------------------
 def main():
-    parser = argparse.ArgumentParser(description="Route A RAG HTTP server")
+    parser = argparse.ArgumentParser(description="Underlight RAG HTTP server")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8080)
     args = parser.parse_args()
 
     server = HTTPServer((args.host, args.port), RagHandler)
-    print(f"Route A RAG server listening on http://{args.host}:{args.port}")
+    print(f"Underlight RAG server listening on http://{args.host}:{args.port}")
     print(f"  POST /ask  — query with retrieval + Ollama")
     print(f"  POST /log  — log a chat message")
     print(f"  GET  /health — status")

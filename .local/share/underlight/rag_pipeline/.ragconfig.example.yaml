@@ -21,7 +21,16 @@ projects:
     - "dist"
     - "venv"
     - ".venv"
+    - ".dart_tool"
+    - ".gradle"
+    - ".idea"
+    - ".vscode"
     - "*.egg-info"
+    - "coverage"
+    - "DerivedData"
+    - "Pods"
+    - "target"
+    - "vendor"
 
   # File extensions to INDEX from projects/ (others skipped)
   extensions:
@@ -51,7 +60,7 @@ projects:
 
 # ---------------------------------------------------------------------------
 # Downloads — second index pass. Same shape as projects.
-# Set skip_ocr: true to skip image OCR on first run (slow) and add later.
+# Keep ocr.enabled false to skip image OCR on the first run.
 # ---------------------------------------------------------------------------
 downloads:
   root: $HOME/Downloads
@@ -85,7 +94,6 @@ downloads:
     enabled: false                # enable after installing/configuring an OCR engine
     engine: "easyocr"            # "tesseract" (CPU) or "easyocr" (GPU)
     gpu: false                   # set true only after CUDA is working
-    gpu_device: 0               # CUDA device id
     min_image_mb: 0.01          # skip images smaller than this (noise)
     max_image_mb: 25            # skip huge images (probably not docs)
     languages:
@@ -98,7 +106,7 @@ downloads:
 
 # ---------------------------------------------------------------------------
 # Home dirs — second index pass (kicad-libraries, Arduino, esp, Postman, etc.)
-# Set skip_ocr: true to skip image OCR on first run (slow) and add later.
+# Keep ocr.enabled false to skip image OCR on the first run.
 # ---------------------------------------------------------------------------
 home:
   root: $HOME
@@ -166,7 +174,6 @@ home:
     enabled: false
     engine: "easyocr"
     gpu: false
-    gpu_device: 0
     min_image_mb: 0.01
     max_image_mb: 25
     languages:
@@ -199,17 +206,18 @@ chunking:
     strategy: "block"           # split by top-level (... ) blocks
 
 # ---------------------------------------------------------------------------
-# Embedder — CPU (saves VRAM for qwen). MiniLM L6 is fast + light.
+# Embedder — Ollama keeps the base Python environment small.
 # ---------------------------------------------------------------------------
 embedder:
-  model: "sentence-transformers/all-MiniLM-L6-v2"
-  device: "cpu"                # "cuda" also works but saves VRAM to leave on CPU
-  batch_size: 64               # CPU embedding batch
+  model: "nomic-embed-text"
+  device: "ollama"
+  ollama_base_url: "http://localhost:11434"
+  batch_size: 64
 
-  # ALTERNATIVE: use Ollama embed model instead (comment above, uncomment below)
-  # model: "nomic-embed-text"
-  # device: "ollama"
-  # ollama_base_url: "http://localhost:11434"
+  # ALTERNATIVE: run sentence-transformers on CPU after installing it with
+  # `underlight-rag setup --with-sentence-transformers`:
+  # model: "sentence-transformers/all-MiniLM-L6-v2"
+  # device: "cpu"
 
 # ---------------------------------------------------------------------------
 # Vector store — file-based, no server. Stored under store_dir.

@@ -1,11 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
-cd "$(dirname "$0")"
-
-export RAG_CONFIG="${RAG_CONFIG:-$(pwd)/.ragconfig.yaml}"
-if [[ ! -f "$RAG_CONFIG" ]]; then
-  echo "ERROR: config not found at $RAG_CONFIG" >&2
-  exit 1
-fi
-
-exec python3 assistant.py "$@"
+case ${1:-} in
+  answer) shift; exec underlight-rag ask "$@" ;;
+  ask) shift; exec underlight-rag direct "$@" ;;
+  *) printf '%s\n' 'Usage: run_assistant.sh answer|ask TEXT' >&2; exit 2 ;;
+esac

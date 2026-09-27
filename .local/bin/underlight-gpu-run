@@ -12,6 +12,22 @@ if [[ $# -eq 0 || ${1:-} == -h || ${1:-} == --help ]]; then
   exit 2
 fi
 
+if ! command -v -- "$1" >/dev/null 2>&1; then
+  printf 'underlight-gpu-run: command not found: %s\n' "$1" >&2
+  if [[ $1 == glxinfo ]]; then
+    if [[ -r /etc/os-release ]]; then
+      # shellcheck disable=SC1091
+      . /etc/os-release
+    fi
+    case ${ID:-}:${ID_LIKE:-} in
+      *arch*) printf 'Install it with: sudo pacman -S --needed mesa-utils\n' >&2 ;;
+      *debian*|ubuntu:*|debian:*) printf 'Install it with: sudo apt install mesa-utils\n' >&2 ;;
+      *) printf 'Install your distribution package that provides glxinfo (usually mesa-utils).\n' >&2 ;;
+    esac
+  fi
+  exit 127
+fi
+
 # switcheroo-control discovers the right non-default device and its required
 # environment. Probe it before exec so a missing system service can fall back.
 if command -v switcherooctl >/dev/null 2>&1; then

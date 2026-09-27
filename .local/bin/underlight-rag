@@ -2,35 +2,190 @@
 
 set -euo pipefail
 
-data_root="${HOME:?}/.local/share/underlight"
+data_root="${XDG_DATA_HOME:-${HOME:?}/.local/share}/underlight"
 config_root="${XDG_CONFIG_HOME:-$HOME/.config}/underlight"
 project="$data_root/rag_pipeline"
-python="$data_root/venvs/rag_pipeline/bin/python"
+venv="$data_root/venvs/rag_pipeline"
+python="$venv/bin/python"
 export RAG_CONFIG="${RAG_CONFIG:-$config_root/rag.yaml}"
+
+script_path=$(readlink -f -- "${BASH_SOURCE[0]}")
+bundled_project=$(cd -- "$(dirname -- "$script_path")/../share/underlight/rag_pipeline" && pwd -P)
 
 usage() {
   printf '%s\n' \
-    'Usage: underlight-rag ask|direct|chat|index|server|opencode [ARGUMENT ...]' \
+    'Usage: underlight-rag COMMAND [ARGUMENT ...]' \
     '' \
-    'The RAG component is optional. Install it on EndeavourOS with:' \
-    '  ./install-endeavouros.sh --with-rag'
+    'Commands:' \
+    '  setup [OPTIONS]      Create the isolated Python environment and config' \
+    '  status               Check config, database, embedder, and Ollama' \
+    '  menu                 Open the graphical RAG menu' \
+    '  config               Edit ~/.config/underlight/rag.yaml' \
+    '  index [OPTIONS]      Index configured files (supports --dry-run/--rebuild)' \
+    '  ask QUESTION         Retrieve local context, then ask Ollama' \
+    '  direct PROMPT        Ask Ollama without retrieval' \
+    '  chat COMMAND         Log/query remembered conversations' \
+    '  server [OPTIONS]     Start the local HTTP API' \
+    '  mcp                  Serve read-only RAG tools over MCP stdio' \
+    '  opencode [ARGS]      Run OpenCode inside the RAG environment'
 }
 
-[[ -d $project && -x $python && -f $RAG_CONFIG ]] || {
-  printf 'underlight-rag: optional RAG component is not installed or configured.\n' >&2
-  usage >&2
-  exit 1
+setup() {
+  local with_ocr=false
+  local with_sentence_transformers=false
+  while (($#)); do
+    case $1 in
+      --with-ocr) with_ocr=true ;;
+      --with-sentence-transformers) with_sentence_transformers=true ;;
+      -h|--help)
+        printf '%s\n' \
+          'Usage: underlight-rag setup [--with-ocr] [--with-sentence-transformers]' \
+          '' \
+          'The default Ollama embedder does not need PyTorch. The optional' \
+          'sentence-transformers setup installs a CPU-only PyTorch build.'
+        return
+        ;;
+      *) printf 'underlight-rag setup: unknown option: %s\n' "$1" >&2; return 2 ;;
+    esac
+    shift
+  done
+
+  mkdir -p -- "$data_root" "$data_root/venvs" "$config_root"
+  if [[ ! -e $project && ! -L $project ]]; then
+    ln -s -- "$bundled_project" "$project"
+  elif [[ ! -d $project ]]; then
+    printf 'underlight-rag: %s exists but is not the RAG source directory\n' "$project" >&2
+    return 1
+  fi
+  command -v python3 >/dev/null 2>&1 || { printf 'underlight-rag: python3 is required\n' >&2; return 1; }
+  if [[ ! -x $python ]]; then
+    python3 -m venv "$venv"
+  fi
+  env -u PYTHONPATH "$python" -m pip install --upgrade pip
+  env -u PYTHONPATH "$python" -m pip install -r "$project/requirements.txt"
+  if [[ $with_sentence_transformers == true ]]; then
+    env -u PYTHONPATH "$python" -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+    env -u PYTHONPATH "$python" -m pip install -r "$project/requirements-embedder.txt"
+  fi
+  if [[ $with_ocr == true ]]; then
+    env -u PYTHONPATH "$python" -m pip install -r "$project/requirements-ocr.txt"
+  fi
+  if [[ ! -e $RAG_CONFIG ]]; then
+    cp -- "$project/.ragconfig.example.yaml" "$RAG_CONFIG"
+    printf 'Created %s\n' "$RAG_CONFIG"
+  else
+    printf 'Preserved %s\n' "$RAG_CONFIG"
+  fi
+  printf '%s\n' \
+    'Underlight RAG is ready.' \
+    'Next: edit the source directories, then run:' \
+    '  ollama pull nomic-embed-text' \
+    '  underlight-rag index --table projects --dry-run'
 }
 
-mode=${1:-}
+status() {
+  local ready=true
+  local ollama_base=http://127.0.0.1:11434
+  local store_dir="$data_root/rag-store"
+  local embedder_name=unknown
+  printf 'Underlight RAG\n\n'
+  if [[ -d $project ]]; then printf 'Source:    ready (%s)\n' "$project"; else printf 'Source:    missing (run underlight-rag setup)\n'; ready=false; fi
+  if [[ -x $python ]]; then printf 'Python:    %s\n' "$(env -u PYTHONPATH "$python" --version 2>&1)"; else printf 'Python:    environment missing (run underlight-rag setup)\n'; ready=false; fi
+  if [[ -f $RAG_CONFIG ]]; then printf 'Config:    %s\n' "$RAG_CONFIG"; else printf 'Config:    missing (%s)\n' "$RAG_CONFIG"; ready=false; fi
+  if [[ -x $python && -f $RAG_CONFIG ]]; then
+    mapfile -t rag_settings < <(env -u PYTHONPATH "$python" - "$RAG_CONFIG" <<'PY'
+import os
+import sys
+import yaml
+with open(sys.argv[1], encoding="utf-8") as stream:
+    cfg = yaml.safe_load(stream)
+print(cfg["ollama"]["base_url"])
+print(os.path.expandvars(os.path.expanduser(cfg["store"]["dir"])))
+print(f'{cfg["embedder"]["model"]} ({cfg["embedder"].get("device", "cpu")})')
+PY
+    )
+    ollama_base=${rag_settings[0]:-$ollama_base}
+    store_dir=${rag_settings[1]:-$store_dir}
+    embedder_name=${rag_settings[2]:-$embedder_name}
+  fi
+  printf 'Embedder:  %s\n' "$embedder_name"
+  if command -v curl >/dev/null 2>&1 && curl -fsS --max-time 2 "${ollama_base%/}/api/tags" >/dev/null 2>&1; then
+    printf 'Ollama:    reachable\n'
+  else
+    printf 'Ollama:    not reachable at %s\n' "$ollama_base"
+  fi
+  if [[ $ready == true ]]; then
+    local table_paths=()
+    local table_names=()
+    shopt -s nullglob
+    table_paths=("$store_dir"/*.lance)
+    shopt -u nullglob
+    local path
+    for path in "${table_paths[@]}"; do
+      table_names+=("$(basename -- "$path" .lance)")
+    done
+    if ((${#table_names[@]})); then
+      local joined
+      printf -v joined '%s, ' "${table_names[@]}"
+      printf 'Tables:    %s\n' "${joined%, }"
+    else
+      printf 'Tables:    none indexed yet\n'
+    fi
+  fi
+}
+
+require_install() {
+  [[ -d $project && -x $python && -f $RAG_CONFIG ]] || {
+    printf 'underlight-rag: not set up; run underlight-rag setup\n' >&2
+    return 1
+  }
+}
+
+open_config() {
+  [[ -f $RAG_CONFIG ]] || { printf 'underlight-rag: run setup first\n' >&2; return 1; }
+  if [[ -n ${EDITOR:-} ]]; then exec "$EDITOR" "$RAG_CONFIG"; elif command -v nvim >/dev/null 2>&1; then exec nvim "$RAG_CONFIG"; else exec vi "$RAG_CONFIG"; fi
+}
+
+menu() {
+  command -v wofi >/dev/null 2>&1 || { printf 'underlight-rag: wofi is not installed\n' >&2; return 1; }
+  local choice query table
+  choice=$(printf '%s\n' 'Ask with local context' 'Index source' 'Dry-run index' 'Status' 'Edit config' |
+    wofi --dmenu --insensitive --prompt 'Underlight RAG') || return
+  case $choice in
+    'Ask with local context')
+      query=$(wofi --dmenu --prompt 'Question') || return
+      [[ -n $query ]] || return
+      exec kitty --class underlight-rag --title 'Underlight RAG' sh -lc \
+        'underlight-rag ask "$1"; printf "\nPress Enter to close..."; read -r _' sh "$query"
+      ;;
+    'Index source'|'Dry-run index')
+      table=$(printf '%s\n' projects downloads home all | wofi --dmenu --prompt 'Index') || return
+      [[ -n $table ]] || return
+      if [[ $choice == 'Dry-run index' ]]; then
+        exec kitty --class underlight-rag --title 'RAG dry run' underlight-rag index --table "$table" --dry-run
+      else
+        exec kitty --class underlight-rag --title 'RAG index' underlight-rag index --table "$table"
+      fi
+      ;;
+    Status) exec kitty --class underlight-rag --title 'RAG status' sh -lc 'underlight-rag status; printf "\nPress Enter to close..."; read -r _' ;;
+    'Edit config') open_config ;;
+  esac
+}
+
+command=${1:-menu}
 [[ $# -eq 0 ]] || shift
-case $mode in
-  ask) exec "$python" "$project/assistant.py" answer "$@" ;;
-  direct) exec "$python" "$project/assistant.py" ask "$@" ;;
-  chat) exec "$python" "$project/chat_tracker.py" "$@" ;;
-  index) exec "$python" "$project/indexer.py" "$@" ;;
-  server) exec "$python" "$project/rag_server.py" "$@" ;;
-  opencode) exec env PATH="$(dirname -- "$python"):$PATH" bash "$project/run_opencode.sh" "$@" ;;
-  -h|--help|'') usage ;;
-  *) printf 'underlight-rag: unknown command: %s\n' "$mode" >&2; usage >&2; exit 2 ;;
+case $command in
+  setup) setup "$@" ;;
+  status) status ;;
+  menu) menu ;;
+  config) open_config ;;
+  ask) require_install; exec env -u PYTHONPATH "$python" "$project/assistant.py" answer "$@" ;;
+  direct) require_install; exec env -u PYTHONPATH "$python" "$project/assistant.py" ask "$@" ;;
+  chat) require_install; exec env -u PYTHONPATH "$python" "$project/chat_tracker.py" "$@" ;;
+  index) require_install; exec env -u PYTHONPATH "$python" "$project/indexer.py" "$@" ;;
+  server) require_install; exec env -u PYTHONPATH "$python" "$project/rag_server.py" "$@" ;;
+  mcp) require_install; exec env -u PYTHONPATH "$python" "$project/rag_mcp_server.py" ;;
+  opencode) require_install; exec env PATH="$(dirname -- "$python"):$PATH" bash "$project/run_opencode.sh" "$@" ;;
+  -h|--help|help) usage ;;
+  *) printf 'underlight-rag: unknown command: %s\n' "$command" >&2; usage >&2; exit 2 ;;
 esac

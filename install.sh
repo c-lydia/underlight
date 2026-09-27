@@ -185,6 +185,7 @@ install_ssh_defaults
 link_item .config/hypr/hyprland.conf
 link_item .config/nvim/after/plugin/underlight-transparent.lua
 link_item .config/nvim/after/plugin/underlight-persistence.lua
+link_item .config/nvim/after/plugin/underlight-rag.lua
 link_item .config/kitty/kitty.conf
 link_item .config/hypr/underlight
 link_item .config/waybar/config.jsonc

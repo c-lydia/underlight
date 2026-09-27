@@ -27,7 +27,15 @@ bash -n "${scripts[@]}"
 for script in "${scripts[@]}"; do
   [[ -x $script ]] || { printf 'not executable: %s\n' "$script" >&2; exit 1; }
 done
+missing_gpu_output=$(
+  "$root/.local/bin/underlight-gpu-run" underlight-command-that-does-not-exist 2>&1 || missing_gpu_status=$?
+  printf '\n%s' "${missing_gpu_status:-0}"
+)
+[[ ${missing_gpu_output##*$'\n'} == 127 ]]
+[[ $missing_gpu_output == *'command not found: underlight-command-that-does-not-exist'* ]]
 python3 -m json.tool "$root/.config/waybar/config.jsonc" >/dev/null
+PYTHONPATH="$root/.local/share/underlight/rag_pipeline" \
+  python3 -m unittest -q test_rag_pipeline
 
 test_root=$(mktemp -d)
 trap 'rm -rf -- "$test_root"' EXIT
@@ -45,6 +53,7 @@ HOME="$test_home" XDG_STATE_HOME="$test_state" \
 [[ -L $test_home/.local/bin/underlight-doctor ]]
 [[ -L $test_home/.config/nvim/after/plugin/underlight-transparent.lua ]]
 [[ -L $test_home/.config/nvim/after/plugin/underlight-persistence.lua ]]
+[[ -L $test_home/.config/nvim/after/plugin/underlight-rag.lua ]]
 [[ -L $test_home/.ssh/config ]]
 [[ -L $test_home/.ssh/config.d/underlight.conf ]]
 [[ -L $test_home/.config/kitty/kitty.conf ]]
