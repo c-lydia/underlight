@@ -90,6 +90,7 @@ packages=(
   python-pip
   python-psutil
   ripgrep
+  screen
   slurp
   switcheroo-control
   ttf-font-awesome

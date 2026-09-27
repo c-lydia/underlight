@@ -19,6 +19,8 @@ module, C++ component, data file, and test, see
 - Ollama, OpenCode, and Hermes launch/status integration
 - Opt-in AC, battery, and AI performance profiles
 - A bundled, transparent `give_laptop_ac` dashboard and optional RAG pipeline
+- Persistent five-shell ROS 2/SSH workspaces with client keepalives
+- A hardware-safe 2.4 GHz NetworkManager phone-hotspot workflow
 
 ## Components and architecture
 
@@ -120,7 +122,8 @@ standard Wayland/Linux tools:
   `underlight-clipboard`, and
   `underlight-power` present Wofi menus for applications, Wi-Fi connections,
   clipboard history, and session actions. The Wi-Fi menu uses NetworkManager
-  directly and works the same way on Ubuntu and EndeavourOS.
+  directly, can create a 2.4 GHz NAT hotspot on an available Wi-Fi radio, and
+  works the same way on Ubuntu and EndeavourOS.
 - `underlight-shot` captures a screen or selected area, saves it under
   `~/Pictures/Screenshots`, and copies it to the Wayland clipboard when
   available.
@@ -150,6 +153,8 @@ standard Wayland/Linux tools:
 - `underlight-install-extras` installs the optional Ubuntu utilities used by
   the integrations. `install-endeavouros.sh` bootstraps a complete Hyprland
   session from the official Arch repositories before linking the same config.
+- `ros2-workspace` opens five ROS-aware GNU Screen shells that survive a
+  Neovim exit, terminal closure, or SSH client detachment.
 
 ### Installation model
 
@@ -172,9 +177,19 @@ cd underlight
 The installer also installs Neovim through `apt` when it is missing, clones the
 full workbench configuration to `~/.local/share/underlight/neovim_config`, and
 links it as `~/.config/nvim`. An existing Neovim configuration is preserved;
-only the Underlight transparency overlay is added to it. The workbench requires
-Neovim 0.11.3 or newer. To keep an existing editor setup without downloading
-the workbench, run `UNDERLIGHT_SKIP_NEOVIM=1 ./install.sh`.
+only the Underlight overlays are added to it. GNU Screen is installed when
+needed. The workbench requires Neovim 0.11.3 or newer. To keep an existing
+editor setup without downloading the workbench, run
+`UNDERLIGHT_SKIP_NEOVIM=1 ./install.sh`.
+
+Underlight installs SSH keepalives in `~/.ssh/config.d/underlight.conf`. On a
+new SSH setup it also links a main config that includes this directory. An
+existing `~/.ssh/config` is never replaced; if it does not already contain
+keepalives, add this line near its top:
+
+```sshconfig
+Include ~/.ssh/config.d/*
+```
 
 Existing files are moved to a timestamped directory below
 `~/.local/state/underlight-dotfiles-backup-*` before links are created.
@@ -302,6 +317,167 @@ The Neovim workbench exposes the same path through `:GpuRun`, `:GpuInfo`,
 `:LaptopControl`, `:AI`, `:OpenCode`, `:Hermes`, `:OllamaInfo`,
 `:PowerProfile`, and `:UnderlightDoctor`. Its `nvim-workspace` launcher
 automatically uses kitty under Hyprland.
+
+## Persistent ROS 2 and SSH shells
+
+The workspace provides five named GNU Screen shells. Screen runs independently
+of Neovim, so closing or crashing the editor detaches the display without
+stopping the shells, ROS 2 commands, or SSH clients inside them.
+
+### Open or recover the workspace
+
+From normal mode in Neovim, press `Space t w` (`<leader>tw`). The default leader
+is Space. The same workspace can be opened without Neovim:
+
+```bash
+ros2-workspace
+```
+
+The first launch creates `ros2-1` through `ros2-5`. Later launches reattach to
+those same shells. Each shell automatically sources the first
+`/opt/ros/*/setup.bash` it finds. If ROS 2 is installed only on another machine,
+the local shell remains usable and prints a reminder to SSH to that machine.
+
+### Move between shells
+
+Screen commands begin with `Ctrl-a`. Press and release `Ctrl-a`, then press the
+second key:
+
+| Keys | Action |
+| --- | --- |
+| `Ctrl-a n` | Move to the next shell |
+| `Ctrl-a p` | Move to the previous shell |
+| `Ctrl-a 0` … `Ctrl-a 4` | Jump directly to `ros2-1` … `ros2-5` |
+| `Ctrl-a d` | Detach while leaving every shell running |
+
+For example, the five shells can hold separate ROS 2 nodes and tools:
+
+```text
+ros2-1: ssh robot.local          # robot shell / launch file
+ros2-2: ssh robot.local          # second node
+ros2-3: ssh robot.local          # topic and service inspection
+ros2-4: ssh sensor-node.local    # hardware-side logs
+ros2-5: local build or ros2 bag
+```
+
+After a Neovim or terminal failure, reopen Neovim and press `Space t w`, or run
+`ros2-workspace` in any terminal. Do not start a new set of SSH sessions—the
+existing ones should reappear.
+
+The defaults can be changed for one launch:
+
+```bash
+ROS2_SCREEN_SHELLS=8 ros2-workspace
+ROS2_SCREEN_SESSION=my-robot ros2-workspace
+```
+
+The shell count may be 1–20. Increasing it backfills missing named windows in
+an existing session.
+
+### SSH persistence levels
+
+Underlight configures `ServerAliveInterval 30` and `ServerAliveCountMax 6`, so
+an SSH client waits through approximately three minutes of missed replies. The
+local Screen workspace also protects the client when Neovim disappears.
+
+Neither mechanism can preserve the remote process after a complete or extended
+network disconnection. For that, start a multiplexer after connecting to the
+remote machine:
+
+```bash
+ssh robot.local
+screen -xRR ros2
+```
+
+If the remote machine uses tmux instead:
+
+```bash
+ssh robot.local
+tmux new -As ros2
+```
+
+Detach the remote Screen session with `Ctrl-a d`, or detach tmux with
+`Ctrl-b d`, before closing SSH when possible.
+
+On a pre-existing SSH configuration, ensure this line is present near the top
+of `~/.ssh/config` unless keepalives are already configured there:
+
+```sshconfig
+Include ~/.ssh/config.d/*
+```
+
+## 2.4 GHz phone hotspot
+
+This feature creates a WPA-protected 2.4 GHz access point for phones such as the
+Galaxy A20. NetworkManager supplies DHCP, IPv4 forwarding, connection tracking,
+and NAT through its `ipv4.method=shared` mode. The profile does not autoconnect.
+
+### Requirements
+
+The laptop must have an available Wi-Fi radio for the hotspot. These layouts
+work:
+
+| Upstream connection | Hotspot radio | Result |
+| --- | --- | --- |
+| Ethernet or USB tether | Laptop Wi-Fi | Supported |
+| Built-in Wi-Fi | Second USB Wi-Fi adapter | Supported |
+| Built-in 5 GHz Wi-Fi | Same built-in radio at 2.4 GHz | Not supported on a one-channel radio |
+
+Underlight deliberately refuses to disconnect or repurpose the only active
+Wi-Fi uplink. On the current single-radio laptop, the last layout therefore
+produces an explanatory error instead of dropping the network. Wi-Fi Direct is
+not presented as a normal hotspot and is not used by this command.
+
+If the command prints the following, it made no network changes and did not
+create a hotspot profile:
+
+```text
+underlight-network: refusing to disconnect the only active Wi-Fi uplink.
+A 5 GHz client plus a 2.4 GHz AP requires another Wi-Fi adapter or a non-Wi-Fi uplink.
+```
+
+Connect the laptop upstream through Ethernet or USB tethering and retry, or
+attach a second Wi-Fi adapter. There is no configuration toggle that makes a
+single one-channel radio operate as a 5 GHz client and a normal 2.4 GHz access
+point simultaneously.
+
+### Start the hotspot
+
+1. Connect the upstream through Ethernet/USB, or connect a second Wi-Fi adapter.
+2. Click the Waybar network section, or open `Super+X` and select Wi-Fi.
+3. Select **Start 2.4 GHz phone hotspot**.
+4. Enter the network name and a password containing 8–63 characters.
+5. On the phone, open Wi-Fi settings and join the new network.
+
+The equivalent terminal command is:
+
+```bash
+underlight-network hotspot-start
+```
+
+The default suggested SSID is `Underlight-Phone`. The password is passed to
+NetworkManager through standard input rather than exposed in the command line.
+
+### Stop the hotspot
+
+Select **Stop 2.4 GHz phone hotspot** from the same network menu, or run:
+
+```bash
+underlight-network hotspot-stop
+```
+
+### UDP and ROS 2 behavior
+
+For custom unicast UDP, configure the phone application to send to the upstream
+device's IP address and UDP port. The laptop translates the outbound packet;
+replies belonging to that flow return through NetworkManager's connection
+tracking. The upstream device cannot initiate a new connection directly to the
+phone's private hotspot address without explicit forwarding.
+
+ROS 2 DDS discovery usually relies on multicast, which ordinary NAT does not
+forward between the hotspot and upstream network. Use a ROS 2 Discovery Server,
+explicit/static peers, or a routing bridge such as Zenoh when ROS nodes must
+discover one another across these subnets.
 
 When the optional RAG component is installed, review its config and start with
 a dry run:

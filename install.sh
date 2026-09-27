@@ -147,10 +147,44 @@ install_neovim_workbench() {
   fi
 }
 
+install_ssh_defaults() {
+  local ssh_config="$target_home/.ssh/config"
+
+  link_item .ssh/config.d/underlight.conf
+  if [[ ! -e $ssh_config && ! -L $ssh_config ]]; then
+    link_item .ssh/config
+  elif [[ -L $ssh_config ]] && [[ $(readlink -f -- "$ssh_config") == $(readlink -f -- "$repo_dir/.ssh/config") ]]; then
+    printf 'Already linked: .ssh/config\n'
+  elif grep -Eiq '^[[:space:]]*Include[[:space:]].*config\.d' "$ssh_config" 2>/dev/null; then
+    printf 'Existing SSH config includes config.d; Underlight keepalives are active.\n'
+  elif grep -Eiq '^[[:space:]]*ServerAliveInterval[[:space:]]+' "$ssh_config" 2>/dev/null; then
+    printf 'Preserving existing SSH keepalive configuration: %s\n' "$ssh_config"
+  else
+    printf 'Preserving existing SSH config: %s\n' "$ssh_config" >&2
+    printf 'Add "Include ~/.ssh/config.d/*" near its top to enable Underlight keepalives.\n' >&2
+  fi
+}
+
+install_persistence_dependency() {
+  if [[ $target_home != "${HOME:?}" ]] || command -v screen >/dev/null 2>&1; then
+    return
+  fi
+  if command -v apt-get >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1; then
+    printf 'Installing GNU Screen for persistent ROS 2 and SSH sessions...\n'
+    sudo apt-get update
+    sudo apt-get install -y screen
+  else
+    printf 'GNU Screen is required by ros2-workspace; install the screen package for this distribution.\n' >&2
+  fi
+}
+
+install_persistence_dependency
 install_neovim_workbench
+install_ssh_defaults
 
 link_item .config/hypr/hyprland.conf
 link_item .config/nvim/after/plugin/underlight-transparent.lua
+link_item .config/nvim/after/plugin/underlight-persistence.lua
 link_item .config/kitty/kitty.conf
 link_item .config/hypr/underlight
 link_item .config/waybar/config.jsonc
@@ -184,6 +218,7 @@ link_item .local/bin/underlight-widgets
 link_item .local/bin/underlight-widgets-toggle
 link_item .local/bin/underlight-window-mode
 link_item .local/bin/nvim-workspace
+link_item .local/bin/ros2-workspace
 
 if [[ ${UNDERLIGHT_WITH_RAG:-0} == 1 ]]; then
   link_item .local/share/underlight/rag_pipeline

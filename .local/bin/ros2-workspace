@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+
+# A five-shell ROS 2 workspace that survives its parent terminal/Neovim.
+# Re-running this command attaches to the existing GNU Screen session.
+
+set -u
+
+session_name="${ROS2_SCREEN_SESSION:-nvim-ros2}"
+shell_count="${ROS2_SCREEN_SHELLS:-5}"
+screen_dir="${ROS2_SCREEN_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/screen}"
+
+if ! [[ "$shell_count" =~ ^[1-9][0-9]*$ ]] || (( shell_count > 20 )); then
+  printf 'ROS2_SCREEN_SHELLS must be a number from 1 to 20.\n' >&2
+  exit 2
+fi
+
+if ! [[ "$session_name" =~ ^[A-Za-z0-9_.-]+$ ]]; then
+  printf 'ROS2_SCREEN_SESSION may contain only letters, numbers, dot, dash, and underscore.\n' >&2
+  exit 2
+fi
+
+if ! command -v screen >/dev/null 2>&1; then
+  printf 'GNU Screen is required but was not found.\n' >&2
+  exit 127
+fi
+
+mkdir -p "$screen_dir"
+chmod 700 "$screen_dir"
+export SCREENDIR="$screen_dir"
+
+ros_shell='setup=$(find /opt/ros -mindepth 2 -maxdepth 2 -name setup.bash -print -quit 2>/dev/null); if [[ -n "$setup" ]]; then source "$setup"; else echo "No ROS 2 installation found under /opt/ros (SSH to the robot if ROS 2 runs remotely)."; fi; exec bash -i'
+
+if ! screen -ls "$session_name" 2>/dev/null | grep -q "[.]${session_name}[[:space:]]"; then
+  if ! screen -dmS "$session_name" -t ros2-1 bash -lc "$ros_shell"; then
+    printf 'Could not create the persistent Screen session %s.\n' "$session_name" >&2
+    exit 1
+  fi
+
+  screen_ready=false
+  for _ in {1..20}; do
+    if screen -S "$session_name" -Q windows >/dev/null 2>&1; then
+      screen_ready=true
+      break
+    fi
+    sleep 0.05
+  done
+
+  if [[ "$screen_ready" != true ]]; then
+    printf 'Screen session %s did not become ready.\n' "$session_name" >&2
+    exit 1
+  fi
+fi
+
+existing_windows=$(screen -S "$session_name" -Q windows 2>/dev/null || true)
+for (( shell_number = 2; shell_number <= shell_count; shell_number++ )); do
+  if ! grep -q " ros2-${shell_number}" <<<"$existing_windows"; then
+    screen -S "$session_name" -X screen -t "ros2-${shell_number}" bash -lc "$ros_shell"
+  fi
+done
+
+exec screen -U -xRR "$session_name"

@@ -10,6 +10,96 @@ notify() {
   fi
 }
 
+hotspot_profile='Underlight Phone Hotspot'
+
+hotspot_is_active() {
+  nmcli -t --escape no -f NAME connection show --active 2>/dev/null |
+    grep -Fxq "$hotspot_profile"
+}
+
+hotspot_stop() {
+  if ! hotspot_is_active; then
+    notify normal 'The phone hotspot is already stopped'
+    return 0
+  fi
+  if nmcli connection down id "$hotspot_profile" >/dev/null; then
+    notify normal '2.4 GHz phone hotspot stopped'
+  else
+    notify critical 'Could not stop the phone hotspot'
+    return 1
+  fi
+}
+
+hotspot_start() {
+  local device type state hotspot_device='' active_wifi=''
+  local ssid password connection_output
+
+  while IFS=: read -r device type state; do
+    [[ $type == wifi ]] || continue
+    if [[ $state == disconnected && -z $hotspot_device ]]; then
+      hotspot_device=$device
+    elif [[ $state == connected* ]]; then
+      active_wifi=$device
+    fi
+  done < <(nmcli -t --escape no -f DEVICE,TYPE,STATE device status 2>/dev/null)
+
+  if [[ -z $hotspot_device ]]; then
+    if [[ -n $active_wifi ]]; then
+      notify critical 'The only Wi-Fi radio is already the uplink. A 5 GHz uplink and 2.4 GHz hotspot need separate radios.'
+      printf '%s\n' \
+        'underlight-network: refusing to disconnect the only active Wi-Fi uplink.' \
+        'A 5 GHz client plus a 2.4 GHz AP requires another Wi-Fi adapter or a non-Wi-Fi uplink.' >&2
+    else
+      notify critical 'No available Wi-Fi adapter can host the phone network'
+      printf 'underlight-network: no disconnected Wi-Fi adapter is available\n' >&2
+    fi
+    return 1
+  fi
+
+  ssid=$(printf '%s\n' 'Underlight-Phone' |
+    wofi --dmenu --prompt '2.4 GHz hotspot name' --width 620 --height 180) || return 0
+  [[ -n $ssid ]] || return 0
+
+  password=$(printf '\n' |
+    wofi --dmenu --password --prompt 'Hotspot password (8–63 characters)' --width 620 --height 180) || return 0
+  if (( ${#password} < 8 || ${#password} > 63 )); then
+    notify critical 'The hotspot password must contain 8–63 characters'
+    return 1
+  fi
+
+  if ! nmcli -t --escape no -f NAME connection show 2>/dev/null | grep -Fxq "$hotspot_profile"; then
+    if ! connection_output=$(nmcli connection add type wifi ifname "$hotspot_device" \
+      con-name "$hotspot_profile" autoconnect no ssid "$ssid" 2>&1); then
+      notify critical "Could not create the hotspot profile: $connection_output"
+      return 1
+    fi
+  fi
+
+  if ! connection_output=$(nmcli connection modify "$hotspot_profile" \
+    connection.interface-name "$hotspot_device" \
+    connection.autoconnect no \
+    802-11-wireless.mode ap \
+    802-11-wireless.band bg \
+    802-11-wireless.ssid "$ssid" \
+    ipv4.method shared \
+    ipv6.method disabled \
+    802-11-wireless-security.key-mgmt wpa-psk \
+    802-11-wireless-security.psk '' 2>&1); then
+    notify critical "Could not configure the hotspot profile: $connection_output"
+    return 1
+  fi
+
+  # NetworkManager reads the PSK from stdin and stores it in its protected
+  # connection profile; the secret never appears in the process arguments.
+  if connection_output=$(printf '%s\n' "$password" |
+    nmcli --ask connection up id "$hotspot_profile" ifname "$hotspot_device" 2>&1); then
+    notify normal "$ssid is active on 2.4 GHz with NetworkManager NAT"
+  else
+    notify critical "Could not start the hotspot: $connection_output"
+    return 1
+  fi
+}
+
 for command in nmcli wofi; do
   if ! command -v "$command" >/dev/null 2>&1; then
     notify critical "$command is not installed"
@@ -17,6 +107,16 @@ for command in nmcli wofi; do
     exit 1
   fi
 done
+
+case ${1:-menu} in
+  menu) ;;
+  hotspot-start) hotspot_start; exit ;;
+  hotspot-stop) hotspot_stop; exit ;;
+  *)
+    printf 'Usage: underlight-network [menu|hotspot-start|hotspot-stop]\n' >&2
+    exit 2
+    ;;
+esac
 
 wifi_state=$(nmcli radio wifi 2>/dev/null) || {
   notify critical 'NetworkManager is unavailable'
@@ -69,6 +169,12 @@ done < <(nmcli -t --escape no -f IN-USE,SSID device wifi list ifname "$wifi_devi
 
 entries=('Rescan networks' 'Turn Wi-Fi off' 'Advanced network settings')
 ssids=('' '' '')
+if hotspot_is_active; then
+  entries=('Stop 2.4 GHz phone hotspot' "${entries[@]}")
+else
+  entries=('Start 2.4 GHz phone hotspot' "${entries[@]}")
+fi
+ssids=('' "${ssids[@]}")
 if [[ -n $current_ssid ]]; then
   entries=("Disconnect from $current_ssid" "${entries[@]}")
   ssids=('' "${ssids[@]}")
@@ -91,6 +197,8 @@ choice=$(printf '%s\n' "${entries[@]}" |
   wofi --dmenu --insensitive --no-custom-entry --prompt 'Wi-Fi' --width 620 --height 480) || exit 0
 
 case $choice in
+  'Start 2.4 GHz phone hotspot') hotspot_start; exit ;;
+  'Stop 2.4 GHz phone hotspot') hotspot_stop; exit ;;
   'Rescan networks') exec "$0" ;;
   'Turn Wi-Fi off')
     if nmcli radio wifi off; then

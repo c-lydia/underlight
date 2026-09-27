@@ -16,10 +16,12 @@ scripts=(
   "$root/.local/bin/underlight-install-extras"
   "$root/.local/bin/underlight-laptop"
   "$root/.local/bin/underlight-minimize"
+  "$root/.local/bin/underlight-network"
   "$root/.local/bin/underlight-rag"
   "$root/.local/bin/underlight-profile"
   "$root/.local/bin/underlight-sensor"
   "$root/.local/bin/nvim-workspace"
+  "$root/.local/bin/ros2-workspace"
 )
 bash -n "${scripts[@]}"
 for script in "${scripts[@]}"; do
@@ -42,6 +44,9 @@ HOME="$test_home" XDG_STATE_HOME="$test_state" \
 [[ -L $test_home/.local/bin/underlight-control ]]
 [[ -L $test_home/.local/bin/underlight-doctor ]]
 [[ -L $test_home/.config/nvim/after/plugin/underlight-transparent.lua ]]
+[[ -L $test_home/.config/nvim/after/plugin/underlight-persistence.lua ]]
+[[ -L $test_home/.ssh/config ]]
+[[ -L $test_home/.ssh/config.d/underlight.conf ]]
 [[ -L $test_home/.config/kitty/kitty.conf ]]
 [[ -L $test_home/.config/wofi/config ]]
 [[ -L $test_home/.config/wofi/style.css ]]
@@ -51,6 +56,7 @@ HOME="$test_home" XDG_STATE_HOME="$test_state" \
 [[ -L $test_home/.local/share/underlight/give_laptop_ac ]]
 [[ -L $test_home/.local/bin/underlight-rag ]]
 [[ -L $test_home/.local/bin/nvim-workspace ]]
+[[ -L $test_home/.local/bin/ros2-workspace ]]
 grep -Fq 'bind = $mainMod, X, exec, ~/.local/bin/underlight-control' \
   "$test_home/.config/hypr/underlight/bindings.conf"
 grep -Fq 'bind = $mainMod, TAB, workspace, e+1' \
@@ -72,6 +78,14 @@ if [[ -e $test_home/.local/bin/underlight-doctor || -L $test_home/.local/bin/und
 fi
 if [[ -e $test_home/.local/bin/underlight-control || -L $test_home/.local/bin/underlight-control ]]; then
   printf 'rollback left the system-actions link installed\n' >&2
+  exit 1
+fi
+if [[ -e $test_home/.ssh/config || -L $test_home/.ssh/config ]]; then
+  printf 'rollback left the SSH config link installed\n' >&2
+  exit 1
+fi
+if [[ -e $test_home/.local/bin/ros2-workspace || -L $test_home/.local/bin/ros2-workspace ]]; then
+  printf 'rollback left the ROS 2 workspace link installed\n' >&2
   exit 1
 fi
 

@@ -49,8 +49,10 @@ touching a real home directory.
 5. Create the new symbolic link and record its relative path.
 
 The script links the Hyprland entry point and module directory, application
-configs, style assets, helper commands, Neovim overlay, and bundled laptop
-dashboard. The RAG source directory is linked only when
+configs, style assets, helper commands, Neovim overlays, SSH keepalive defaults,
+and the bundled laptop dashboard. Existing SSH configs are preserved; a fresh
+install receives an include-based config, while an existing config can opt into
+the linked `config.d` snippet. The RAG source directory is linked only when
 `UNDERLIGHT_WITH_RAG=1`.
 
 Before linking those files, `install_neovim_workbench()` bootstraps the editor.
@@ -221,7 +223,9 @@ the live config directory.
 - `.local/bin/underlight-control` presents every Waybar action in one
   keyboard-driven Wofi menu and provides the shared audio-mixer fallback.
 - `.local/bin/underlight-network` scans and selects Wi-Fi with NetworkManager,
-  reuses saved credentials, and requests a missing password through Wofi.
+  reuses saved credentials, requests a missing password through Wofi, and
+  creates or stops a 2.4 GHz NetworkManager shared/NAT hotspot when a separate
+  Wi-Fi radio is available. It refuses to replace the only active Wi-Fi uplink.
 - `.local/bin/underlight-power` pipes five actions into Wofi, then maps the
   chosen label to `loginctl`, `systemctl`, or `hyprctl`. Canceling produces no
   action.
@@ -294,6 +298,12 @@ normal Neovim instance, a Neovim terminal, and Codex (or a shell fallback), plus
 Firefox. Outside Hyprland it launches desktop entries with `gtk-launch`. Extra
 native and Flatpak apps are started afterward. Window placement is left to the
 desktop rules/integration that recognizes those application classes.
+
+`.local/bin/ros2-workspace` owns a detached GNU Screen session with five named
+ROS-aware Bash windows. `.config/nvim/after/plugin/underlight-persistence.lua`
+adds `:UnderlightRos2Workspace` and the fallback `<leader>tw` mapping. Screen's
+server lifetime is independent of Neovim, and the SSH `config.d` snippet adds
+30-second keepalives with six missed probes allowed.
 
 `.local/bin/underlight-laptop` selects the dashboard source in this order:
 `GIVE_LAPTOP_AC_HOME`, `~/projects/give_laptop_ac`, then the bundled copy. It
