@@ -1,0 +1,152 @@
+#!/usr/bin/env python3
+"""Explicit IPv4 NAT controls for hosts with real CAP_NET_ADMIN."""
+import argparse
+import fcntl
+import ipaddress
+import json
+import os
+from pathlib import Path
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+
+STATE = Path('/run/underlight-network')
+NAT = 'UNDERLIGHT_NAT'
+FWD = 'UNDERLIGHT_FWD'
+
+
+def capable():
+    try:
+        for line in Path('/proc/self/status').read_text().splitlines():
+            if line.startswith('CapEff:'):
+                return bool(int(line.split()[1], 16) & (1 << 12))
+    except OSError:
+        pass
+    return False
+
+
+def plan(uplink, downlink, subnet):
+    for interface in (uplink, downlink):
+        if not re.fullmatch(r'[A-Za-z0-9_.:-]{1,15}', interface):
+            raise ValueError('Use a Linux interface name, such as wlan0 or eth0.')
+    if uplink == downlink:
+        raise ValueError('Uplink and downlink must be different interfaces.')
+    network = ipaddress.IPv4Network(subnet, strict=True)
+    if network.prefixlen == 0:
+        raise ValueError('Choose the actual downstream subnet, not a default route.')
+    subnet = str(network)
+    # Each operation has an inverse for rollback and nat-stop. Never flush host chains.
+    return [
+        (['-t', 'nat', '-N', NAT], ['-t', 'nat', '-X', NAT]),
+        (['-N', FWD], ['-X', FWD]),
+        (['-t', 'nat', '-A', NAT, '-s', subnet, '-o', uplink, '-j', 'MASQUERADE'],
+         ['-t', 'nat', '-D', NAT, '-s', subnet, '-o', uplink, '-j', 'MASQUERADE']),
+        (['-A', FWD, '-i', downlink, '-o', uplink, '-s', subnet, '-j', 'ACCEPT'],
+         ['-D', FWD, '-i', downlink, '-o', uplink, '-s', subnet, '-j', 'ACCEPT']),
+        (['-A', FWD, '-i', uplink, '-o', downlink, '-d', subnet, '-m', 'conntrack',
+          '--ctstate', 'RELATED,ESTABLISHED', '-j', 'ACCEPT'],
+         ['-D', FWD, '-i', uplink, '-o', downlink, '-d', subnet, '-m', 'conntrack',
+          '--ctstate', 'RELATED,ESTABLISHED', '-j', 'ACCEPT']),
+        (['-t', 'nat', '-I', 'POSTROUTING', '1', '-j', NAT], ['-t', 'nat', '-D', 'POSTROUTING', '-j', NAT]),
+        (['-I', 'FORWARD', '1', '-j', FWD], ['-D', 'FORWARD', '-j', FWD]),
+    ]
+
+
+def iptables(args):
+    subprocess.run(['iptables', '-w', '5', *args], check=True, timeout=10)
+
+
+def start(uplink, downlink, subnet):
+    operations = plan(uplink, downlink, subnet)
+    if (STATE / 'nat.json').exists():
+        raise ValueError('Underlight NAT is already active; stop it before changing interfaces.')
+    for interface in (uplink, downlink):
+        if not (Path('/sys/class/net') / interface).exists():
+            raise ValueError(f'Interface does not exist: {interface}')
+    if Path('/proc/sys/net/ipv4/ip_forward').read_text().strip() != '1':
+        raise ValueError('IPv4 forwarding is disabled. Enable it explicitly with sysctl -w net.ipv4.ip_forward=1 before starting NAT.')
+    for table, chain in [('nat', NAT), ('filter', FWD)]:
+        result = subprocess.run(['iptables', '-w', '5', '-t', table, '-S', chain],
+                                capture_output=True, timeout=10)
+        if result.returncode == 0:
+            raise ValueError(f'{chain} already exists; refusing to replace rules without ownership state.')
+    applied = []
+    try:
+        for command, undo in operations:
+            iptables(command)
+            applied.append(undo)
+        temporary = STATE / 'nat.tmp'
+        temporary.write_text(json.dumps({'uplink': uplink, 'downlink': downlink, 'subnet': subnet, 'undo': applied}))
+        temporary.replace(STATE / 'nat.json')
+    except BaseException:
+        # Persist unfinished inverses if rollback itself fails, so stop can retry.
+        remaining = list(applied)
+        for command in reversed(applied):
+            try:
+                iptables(command)
+                remaining.pop()
+            except (OSError, subprocess.SubprocessError):
+                break
+        if remaining:
+            (STATE / 'nat.json').write_text(json.dumps({'undo': remaining}))
+        raise
+    print(f'IPv4 NAT active: {downlink} ({subnet}) -> {uplink}. Stop with underlight-net-admin nat-stop.')
+
+
+def stop():
+    path = STATE / 'nat.json'
+    if not path.exists():
+        print('No Underlight NAT transaction to stop.')
+        return
+    data = json.loads(path.read_text())
+    while data['undo']:
+        iptables(data['undo'][-1])
+        data['undo'].pop()
+        temporary = STATE / 'nat.tmp'
+        temporary.write_text(json.dumps(data))
+        temporary.replace(path)
+    path.unlink()
+    print('Removed Underlight NAT rules. Global forwarding and other firewall rules were preserved.')
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('command', choices=['status', 'nat-plan', 'nat-start', 'nat-stop'])
+    parser.add_argument('args', nargs='*')
+    args = parser.parse_args()
+    expected = 3 if args.command in ('nat-plan', 'nat-start') else 0
+    if len(args.args) != expected:
+        parser.error('nat-plan/nat-start need UPLINK DOWNLINK SUBNET; status/nat-stop take no arguments.')
+    try:
+        if args.command == 'status':
+            print(f'Real CAP_NET_ADMIN: {capable()}')
+            print('Hotspot: use underlight-network hotspot-start where NetworkManager manages a spare Wi-Fi adapter.')
+            print('Rootless PRoot: use Android hotspot settings; guest root cannot manage the host firewall.')
+            return 0
+        if args.command == 'nat-plan':
+            for command, _ in plan(*args.args):
+                print(shlex.join(['iptables', '-w', '5', *command]))
+            return 0
+        if os.geteuid() != 0 or not capable():
+            raise PermissionError('Real root with CAP_NET_ADMIN is required. PRoot guest root is insufficient.')
+        if not shutil.which('iptables'):
+            raise ValueError('Install iptables in the host/rooted chroot before using NAT controls.')
+        STATE.mkdir(mode=0o700, exist_ok=True)
+        if STATE.is_symlink() or STATE.stat().st_uid != 0 or STATE.stat().st_mode & 0o077:
+            raise PermissionError(f'{STATE} must be a root-owned directory with mode 0700.')
+        with (STATE / 'lock').open('w') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            if args.command == 'nat-start':
+                start(*args.args)
+            else:
+                stop()
+        return 0
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        print(f'underlight-net-admin: {error}', file=sys.stderr)
+        return 1
+
+
+if __name__ == '__main__':
+    sys.exit(main())

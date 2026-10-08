@@ -1,0 +1,146 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+config="${XDG_CONFIG_HOME:-$HOME/.config}/underlight/android.sh"
+if [[ ! -r $config ]]; then
+  script=$(readlink -f -- "${BASH_SOURCE[0]}")
+  config="${script%/.local/bin/*}/.config/underlight/android.sh"
+fi
+# shellcheck disable=SC1090
+[[ ! -r $config ]] || . "$config"
+# Use Studio's bundled JDK for Android commands without changing other shells.
+if [[ -z ${JAVA_HOME:-} && -x ${ANDROID_STUDIO_HOME:-}/jbr/bin/java ]]; then
+  export JAVA_HOME="$ANDROID_STUDIO_HOME/jbr"
+  export PATH="$JAVA_HOME/bin:$PATH"
+fi
+
+usage() {
+  printf '%s\n' \
+    'Usage: underlight-android menu|studio|adb|flutter|sdk|emulator|doctor [ARG ...]' \
+    '       underlight-android setup [ANDROID_STUDIO_TAR_GZ]' \
+    'emulator NAME [OPTIONS]: launch an AVD; without NAME, choose one with Wofi.' \
+    'setup: install distro prerequisites and Flutter; optionally install a downloaded Studio archive.'
+}
+need() {
+  command -v "$1" >/dev/null 2>&1 || {
+    printf 'underlight-android: %s is missing. Run setup and complete Android Studio SDK Manager setup.\n' "$1" >&2
+    exit 127
+  }
+}
+studio() {
+  local binary
+  for binary in "${ANDROID_STUDIO_HOME:-}/bin/studio" "${ANDROID_STUDIO_HOME:-}/bin/studio.sh"; do
+    [[ ! -x $binary ]] || exec "$binary" "$@"
+  done
+  if command -v android-studio >/dev/null 2>&1; then exec android-studio "$@"; fi
+  printf 'Android Studio was not found. Set ANDROID_STUDIO_HOME or run setup with its Linux .tar.gz archive.\n' >&2
+  exit 127
+}
+doctor() {
+  local tool failed=0
+  printf 'Android SDK: %s\nStudio: %s\n' "${ANDROID_HOME:-not found}" "${ANDROID_STUDIO_HOME:-not found (or on PATH)}"
+  for tool in adb flutter emulator sdkmanager java; do
+    if command -v "$tool" >/dev/null 2>&1; then
+      printf '[OK] %s: %s\n' "$tool" "$(command -v "$tool")"
+    else
+      printf '[!!] %s missing\n' "$tool"
+      failed=1
+    fi
+  done
+  if [[ -r /dev/kvm && -w /dev/kvm ]]; then
+    printf '[OK] KVM is accessible\n'
+  else
+    printf '[!!] KVM is unavailable. Enable CPU virtualization and check membership of the kvm group; log in again after group changes.\n'
+    failed=1
+  fi
+  if command -v emulator >/dev/null 2>&1; then emulator -accel-check || failed=1; fi
+  if command -v flutter >/dev/null 2>&1; then flutter doctor -v || failed=1; fi
+  return "$failed"
+}
+setup() {
+  [[ $(uname -m) == x86_64 ]] || { printf 'The Linux Android Studio and emulator setup requires x86_64.\n' >&2; exit 1; }
+  local archive=${1:-} data_root="$HOME/.local/share/underlight" staging
+  if [[ -n $archive ]]; then
+    [[ -f $archive ]] || { printf 'Archive not found: %s\n' "$archive" >&2; exit 1; }
+    [[ ! -e $data_root/android-studio ]] || { printf 'Preserving existing %s/android-studio; update it in Studio.\n' "$data_root" >&2; exit 1; }
+  fi
+  # shellcheck disable=SC1091
+  . /etc/os-release
+  case " ${ID:-} ${ID_LIKE:-} " in
+    *' arch '*|*' endeavouros '*)
+      sudo pacman -Syu --needed android-tools android-udev git curl unzip zip xz clang cmake ninja pkgconf gtk3 jdk17-openjdk
+      ;;
+    *' ubuntu '*|*' debian '*)
+      sudo apt-get update
+      sudo apt-get install -y adb android-sdk-platform-tools-common git curl unzip zip xz-utils clang cmake ninja-build pkg-config libgtk-3-dev openjdk-17-jdk
+      ;;
+    *) printf 'Automatic prerequisites support Ubuntu/Debian and EndeavourOS/Arch. Install SDK prerequisites manually on this distribution.\n' >&2; exit 1 ;;
+  esac
+  mkdir -p "$data_root"
+  if [[ -n $archive ]]; then
+    staging=$(mktemp -d "$data_root/android-studio-install.XXXXXX")
+    tar -xzf "$archive" -C "$staging" --no-same-owner
+    [[ -x $staging/android-studio/bin/studio || -x $staging/android-studio/bin/studio.sh ]] || {
+      printf 'Archive did not provide android-studio/bin/studio[.sh]; inspect %s.\n' "$staging" >&2; exit 1;
+    }
+    mv -- "$staging/android-studio" "$data_root/android-studio"
+    rmdir -- "$staging"
+  fi
+  if ! command -v flutter >/dev/null 2>&1; then
+    local destination=${FLUTTER_ROOT:-$data_root/flutter}
+    if [[ -e $destination ]]; then
+      printf 'Preserving existing Flutter path: %s; set FLUTTER_ROOT to a working SDK.\n' "$destination" >&2
+      exit 1
+    fi
+    git clone --depth 1 --branch stable https://github.com/flutter/flutter.git "$destination"
+  fi
+  printf '%s\n' \
+    'Prerequisites and Flutter are ready. Next:' \
+    '1. Download Studio from https://developer.android.com/studio if needed; pass its Linux archive to setup.' \
+    '2. Run underlight-android studio and complete its Setup Wizard.' \
+    '3. In SDK Manager install Platform-Tools, Command-line Tools (latest), Emulator, and your target SDK/build tools.' \
+    '4. Create a virtual device in Device Manager and download its system image.' \
+    '5. Run underlight-android flutter doctor --android-licenses, then underlight-android doctor.' \
+    'For USB devices, enable USB debugging and authorize the computer on the device.' \
+    'For KVM access, enable virtualization and add your user to the kvm group if needed; log in again.'
+}
+menu() {
+  need wofi
+  local choice
+  choice=$(printf '%s\n' 'Android Studio' 'Android emulator' 'ADB devices' 'Flutter doctor' |
+    wofi --dmenu --insensitive --no-custom-entry --prompt 'Android & Flutter') || exit 0
+  case $choice in
+    'Android Studio') studio ;;
+    'Android emulator') emulator_launch ;;
+    'ADB devices') need kitty; exec kitty --hold --title 'ADB devices' "$0" adb devices -l ;;
+    'Flutter doctor') need kitty; exec kitty --hold --title 'Android & Flutter doctor' "$0" doctor ;;
+  esac
+}
+emulator_launch() {
+  need emulator
+  local avd=${1:-} avds
+  if [[ -z $avd ]]; then
+    avds=$(emulator -list-avds)
+    [[ -n $avds ]] || { printf 'No AVDs found. Create one in Android Studio Device Manager.\n' >&2; exit 1; }
+    need wofi
+    avd=$(printf '%s\n' "$avds" | wofi --dmenu --no-custom-entry --prompt 'Android virtual device') || exit 0
+    [[ -n $avd ]] || exit 0
+  else
+    shift
+  fi
+  # Preserve the emulator's renderer selection; NVIDIA offload remains opt-in.
+  exec emulator -avd "$avd" "$@"
+}
+command=${1:-menu}
+(($# == 0)) || shift
+case $command in
+  -h|--help) usage ;;
+  menu) menu ;;
+  studio) studio "$@" ;;
+  adb|flutter) need "$command"; exec "$command" "$@" ;;
+  sdk) need sdkmanager; exec sdkmanager "$@" ;;
+  emulator) emulator_launch "$@" ;;
+  doctor) doctor ;;
+  setup) setup "$@" ;;
+  *) usage >&2; exit 2 ;;
+esac

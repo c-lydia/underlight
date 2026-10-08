@@ -10,6 +10,8 @@ else
   target_home=${1:-${HOME:?}}
 fi
 backup_dir="${XDG_STATE_HOME:-$target_home/.local/state}/underlight-dotfiles-backup-$(date +%Y%m%d-%H%M%S)"
+profile=${UNDERLIGHT_PROFILE:-desktop}
+case $profile in desktop|minimal) ;; *) printf 'Unknown Underlight profile: %s\n' "$profile" >&2; exit 2 ;; esac
 backup_used=false
 changed_items=()
 
@@ -178,9 +180,14 @@ install_persistence_dependency() {
   fi
 }
 
+install_ssh_defaults
+link_item .local/bin/underlight-tui
+link_item .local/bin/underlight-net-admin
+link_item .local/bin/underlight-network
+
+if [[ $profile == desktop ]]; then
 install_persistence_dependency
 install_neovim_workbench
-install_ssh_defaults
 
 link_item .config/hypr/hyprland.conf
 link_item .config/nvim/after/plugin/underlight-transparent.lua
@@ -193,6 +200,12 @@ link_item .config/waybar/style.css
 link_item .config/wofi/config
 link_item .config/wofi/style.css
 link_item .config/mako/config
+link_item .config/underlight/toolchains.sh
+link_item .config/underlight/cuda.sh
+link_item .config/underlight/android.sh
+link_item .local/bin/underlight-android
+link_item .local/share/applications/underlight-android.desktop
+link_item .local/share/applications/underlight-terminal.desktop
 link_item .config/underlight/logo.svg
 link_item .config/underlight/widgets.css
 link_item .local/share/underlight/give_laptop_ac
@@ -209,7 +222,6 @@ link_item .local/bin/underlight-install-extras
 link_item .local/bin/underlight-laptop
 link_item .local/bin/underlight-menu
 link_item .local/bin/underlight-minimize
-link_item .local/bin/underlight-network
 link_item .local/bin/underlight-rag
 link_item .local/bin/underlight-profile
 link_item .local/bin/underlight-power
@@ -224,6 +236,8 @@ link_item .local/bin/ros2-workspace
 if [[ ${UNDERLIGHT_WITH_RAG:-0} == 1 ]]; then
   link_item .local/share/underlight/rag_pipeline
 fi
+
+fi # desktop profile
 
 if ((${#changed_items[@]} > 0)); then
   mkdir -p -- "$backup_dir"

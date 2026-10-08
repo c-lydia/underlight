@@ -12,6 +12,13 @@ if [[ $# -eq 0 || ${1:-} == -h || ${1:-} == --help ]]; then
   exit 2
 fi
 
+# Load the same toolkit as interactive shells before resolving nvcc.
+cuda_environment="${XDG_CONFIG_HOME:-$HOME/.config}/underlight/cuda.sh"
+if [[ -r $cuda_environment ]]; then
+  # shellcheck disable=SC1090
+  . "$cuda_environment"
+fi
+
 if ! command -v -- "$1" >/dev/null 2>&1; then
   printf 'underlight-gpu-run: command not found: %s\n' "$1" >&2
   if [[ $1 == glxinfo ]]; then
@@ -40,7 +47,9 @@ fi
 # NVIDIA's documented PRIME render-offload variables cover EGL/Vulkan with the
 # first flag and GLX with the vendor override. The Vulkan selector prevents an
 # application from choosing the iGPU again after offload was requested.
-if [[ -r /proc/driver/nvidia/version ]] || lspci -d 10de: -nn >/dev/null 2>&1; then
+# lspci succeeds even when no device matches: inspect its output as well.
+if [[ -r /proc/driver/nvidia/version ]] ||
+   { command -v lspci >/dev/null 2>&1 && [[ -n $(lspci -d 10de: -nn 2>/dev/null) ]]; }; then
   export __NV_PRIME_RENDER_OFFLOAD=1
   export __GLX_VENDOR_LIBRARY_NAME=nvidia
   export __VK_LAYER_NV_optimus=NVIDIA_only

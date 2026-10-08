@@ -4,6 +4,8 @@ set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 scripts=(
+  "$root/.local/bin/underlight-android"
+  "$root/install-terminal.sh"
   "$root/install.sh"
   "$root/install-endeavouros.sh"
   "$root/.local/bin/underlight-ai"
@@ -23,7 +25,10 @@ scripts=(
   "$root/.local/bin/nvim-workspace"
   "$root/.local/bin/ros2-workspace"
 )
-bash -n "${scripts[@]}"
+for script in "${scripts[@]}"; do bash -n "$script"; done
+bash "$root/tests/cuda.sh"
+bash "$root/tests/android.sh"
+python3 "$root/tests/test_terminal.py"
 for script in "${scripts[@]}"; do
   [[ -x $script ]] || { printf 'not executable: %s\n' "$script" >&2; exit 1; }
 done
@@ -60,6 +65,13 @@ HOME="$test_home" XDG_STATE_HOME="$test_state" \
 [[ -L $test_home/.config/wofi/config ]]
 [[ -L $test_home/.config/wofi/style.css ]]
 [[ -L $test_home/.config/mako/config ]]
+[[ -L $test_home/.config/underlight/cuda.sh ]]
+[[ -L $test_home/.config/underlight/android.sh ]]
+[[ -L $test_home/.config/underlight/toolchains.sh ]]
+[[ -L $test_home/.local/bin/underlight-android ]]
+[[ -L $test_home/.local/bin/underlight-tui ]]
+[[ -L $test_home/.local/share/applications/underlight-android.desktop ]]
+[[ -L $test_home/.local/share/applications/underlight-terminal.desktop ]]
 [[ -L $test_home/.config/underlight/logo.svg ]]
 [[ -L $test_home/.config/underlight/widgets.css ]]
 [[ -L $test_home/.local/share/underlight/give_laptop_ac ]]
@@ -98,6 +110,12 @@ if [[ -e $test_home/.local/bin/ros2-workspace || -L $test_home/.local/bin/ros2-w
   exit 1
 fi
 
+for removed in .config/underlight/cuda.sh .config/underlight/android.sh .config/underlight/toolchains.sh \
+  .local/bin/underlight-android .local/bin/underlight-tui .local/bin/underlight-net-admin \
+  .local/share/applications/underlight-android.desktop .local/share/applications/underlight-terminal.desktop; do
+  [[ ! -e $test_home/$removed && ! -L $test_home/$removed ]]
+done
+
 preserve_home="$test_root/preserve-home"
 preserve_state="$test_root/preserve-state"
 mkdir -p "$preserve_home/.config/nvim" "$preserve_state"
@@ -114,4 +132,16 @@ if [[ -e $preserve_home/.config/nvim/after/plugin/underlight-transparent.lua || 
   exit 1
 fi
 
+minimal_home="$test_root/minimal-home"
+minimal_state="$test_root/minimal-state"
+mkdir -p "$minimal_home" "$minimal_state"
+HOME="$minimal_home" XDG_STATE_HOME="$minimal_state" "$root/install-terminal.sh" >/dev/null
+[[ -L $minimal_home/.local/bin/underlight-tui ]]
+[[ -L $minimal_home/.local/bin/underlight-net-admin ]]
+[[ ! -e $minimal_home/.config/hypr ]]
+[[ ! -e $minimal_home/.config/nvim ]]
+[[ ! -e $minimal_home/.local/bin/underlight-android ]]
+[[ ! -e $minimal_home/.local/share/underlight/give_laptop_ac ]]
+HOME="$minimal_home" XDG_STATE_HOME="$minimal_state" "$root/install.sh" --restore latest >/dev/null
+[[ ! -e $minimal_home/.local/bin/underlight-tui && ! -L $minimal_home/.local/bin/underlight-tui ]]
 printf 'UNDERLIGHT_SMOKE_OK\n'

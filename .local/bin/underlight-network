@@ -10,6 +10,35 @@ notify() {
   fi
 }
 
+# The network lab works over SSH and inside Arch/Termux without a GUI.
+case ${1:-menu} in
+  tui) exec underlight-tui ;;
+  menu)
+    if ! command -v wofi >/dev/null 2>&1 || [[ -z ${WAYLAND_DISPLAY:-} ]]; then
+      exec underlight-tui
+    fi
+    ;;
+esac
+
+ask() {
+  local label=$1 default=${2:-} secret=${3:-false} answer
+  if command -v wofi >/dev/null 2>&1 && [[ -n ${WAYLAND_DISPLAY:-} ]]; then
+    if [[ $secret == true ]]; then
+      printf '\n' | wofi --dmenu --password --prompt "$label" --width 620 --height 180
+    else
+      printf '%s\n' "$default" | wofi --dmenu --prompt "$label" --width 620 --height 180
+    fi
+  else
+    if [[ $secret == true ]]; then
+      IFS= read -rs -p "$label: " answer </dev/tty || return 1
+      printf '\n' >&2
+    else
+      IFS= read -r -p "$label [$default]: " answer </dev/tty || return 1
+    fi
+    printf '%s\n' "${answer:-$default}"
+  fi
+}
+
 hotspot_profile='Underlight Phone Hotspot'
 
 hotspot_is_active() {
@@ -56,12 +85,10 @@ hotspot_start() {
     return 1
   fi
 
-  ssid=$(printf '%s\n' 'Underlight-Phone' |
-    wofi --dmenu --prompt '2.4 GHz hotspot name' --width 620 --height 180) || return 0
+  ssid=$(ask '2.4 GHz hotspot name' 'Underlight-Phone') || return 0
   [[ -n $ssid ]] || return 0
 
-  password=$(printf '\n' |
-    wofi --dmenu --password --prompt 'Hotspot password (8–63 characters)' --width 620 --height 180) || return 0
+  password=$(ask 'Hotspot password (8–63 characters)' '' true) || return 0
   if (( ${#password} < 8 || ${#password} > 63 )); then
     notify critical 'The hotspot password must contain 8–63 characters'
     return 1
@@ -100,20 +127,18 @@ hotspot_start() {
   fi
 }
 
-for command in nmcli wofi; do
-  if ! command -v "$command" >/dev/null 2>&1; then
-    notify critical "$command is not installed"
-    printf 'underlight-network: %s is not installed\n' "$command" >&2
-    exit 1
-  fi
-done
+if ! command -v nmcli >/dev/null 2>&1; then
+  notify critical 'NetworkManager is not installed'
+  printf 'underlight-network: NetworkManager is unavailable; use Android hotspot settings in rootless PRoot\n' >&2
+  exit 1
+fi
 
 case ${1:-menu} in
   menu) ;;
   hotspot-start) hotspot_start; exit ;;
   hotspot-stop) hotspot_stop; exit ;;
   *)
-    printf 'Usage: underlight-network [menu|hotspot-start|hotspot-stop]\n' >&2
+    printf 'Usage: underlight-network [menu|tui|hotspot-start|hotspot-stop]\n' >&2
     exit 2
     ;;
 esac

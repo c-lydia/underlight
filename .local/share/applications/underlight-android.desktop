@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Android Studio (Underlight)
+Comment=Android and Flutter development
+Exec=underlight-android studio %f
+Icon=android-studio
+Terminal=false
+Categories=Development;IDE;

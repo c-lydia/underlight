@@ -11,6 +11,11 @@ For an implementation-level tour of every configuration, executable, Python
 module, C++ component, data file, and test, see
 [CODE_WALKTHROUGH.md](CODE_WALKTHROUGH.md).
 
+For a beginner-oriented explanation of how the complete system fits together,
+including the 2.4 GHz hotspot, NAT, UDP port 55555, ROS 2, GPU/AI tools, state,
+and safe modification workflow, see
+[UNDERSTANDING_UNDERLIGHT.md](UNDERSTANDING_UNDERLIGHT.md).
+
 ## Included
 
 - Hyprland entry point and modular `underlight/` configuration
@@ -167,6 +172,32 @@ files into a timestamped state-directory backup first. Runtime state stays
 outside the repository; the notable persistent state is clipboard history,
 which is maintained by `cliphist`.
 
+## Phone and terminal support
+
+For Arch Linux ARM inside Termux, use the minimal terminal profile:
+
+```bash
+./install-terminal.sh --packages
+export PATH="$HOME/.local/bin:$PATH"
+underlight-tui
+```
+
+It includes a responsive network-lab TUI, DNS/ping/TCP/UDP tools, SSH, and
+optional host-capable hotspot/NAT controls. It installs no desktop or SDKs.
+The same TUI is included in both desktop installs, with a wider two-pane layout
+and desktop actions. See [phone setup and network lab](docs/TERMINAL.md) for
+Termux/Arch installation from scratch, permissions, NAT, and rollback.
+
+## Android Studio and Flutter
+
+Both desktop platforms include `underlight-android` and Android Studio launcher
+integration. Use `underlight-android setup` for distro prerequisites and Flutter,
+or pass a downloaded Studio Linux archive to install it too. Existing Studio,
+SDK, and Flutter installations are reused. Open **Super+X → Android & Flutter**
+or use `underlight-android adb`, `flutter`, `sdk`, and `emulator` from a terminal.
+See [Android desktop setup](docs/ANDROID.md) for SDKs, device access, emulator
+acceleration, and shell PATH setup. Phone installations remain minimal.
+
 ## Install on Ubuntu
 
 Clone the repository and run:
@@ -276,6 +307,26 @@ battery section for power profiles. Right-click audio for the volume mixer.
 NVIDIA drivers are deliberately not installed by the bootstrap because the
 correct package depends on the GPU and kernel. Install the driver through
 EndeavourOS first; Underlight's PRIME helpers will detect it afterward.
+
+## CUDA toolchain
+
+The installer links `~/.config/underlight/cuda.sh`. Source it from both
+`~/.bashrc` and `~/.zshrc` to select the toolkit at `/usr/local/cuda` instead
+of an older `/usr/bin/nvcc`:
+
+```sh
+[ ! -r "$HOME/.config/underlight/cuda.sh" ] || . "$HOME/.config/underlight/cuda.sh"
+```
+
+Set `CUDA_HOME` before sourcing to select another toolkit. The setup works in
+Bash and Zsh, tolerates a missing toolkit, and does not add CUDA stub libraries
+or empty entries to the library path. `underlight-gpu-run` loads it too.
+Check `nvcc --version` and `underlight-gpu-check` after opening a new terminal.
+
+If diagnostics report `Driver/library version mismatch`, save your work and
+reboot after a driver update. The loaded kernel module must match the installed
+NVIDIA libraries; shell configuration cannot replace a loaded driver. If the
+mismatch persists after reboot, inspect the distro driver installation.
 
 ## Hybrid GPU
 

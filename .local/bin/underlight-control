@@ -32,6 +32,8 @@ open_menu() {
     'Power profile' \
     'Laptop dashboard' \
     'GPU & compute' \
+    'Android & Flutter' \
+    'Network lab (TUI)' \
     'System diagnostics' \
     'Session & power' |
     wofi --dmenu --insensitive --no-custom-entry --prompt 'System actions' \
@@ -45,6 +47,8 @@ open_menu() {
     'Power profile') exec underlight-profile menu ;;
     'Laptop dashboard') exec underlight-laptop ;;
     'GPU & compute') exec underlight-gpu-menu ;;
+    'Android & Flutter') exec underlight-android menu ;;
+    'Network lab (TUI)') exec kitty --title 'Underlight network lab' underlight-tui ;;
     'System diagnostics') exec underlight-doctor --terminal ;;
     'Session & power') exec underlight-power ;;
   esac

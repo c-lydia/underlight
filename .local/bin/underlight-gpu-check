@@ -43,9 +43,32 @@ fi
 
 section 'NVIDIA driver and telemetry'
 if command -v nvidia-smi >/dev/null 2>&1; then
-  nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader 2>&1 || true
+  gpu_line=$(nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader 2>&1)
+  printf '%s\n' "$gpu_line"
+  if [[ $gpu_line == *'Driver/library version mismatch'* ]]; then
+    printf 'Save your work and reboot to load the updated NVIDIA kernel module.\n'
+  fi
+  if [[ -r /proc/driver/nvidia/version ]]; then
+    cat /proc/driver/nvidia/version
+  fi
+  if command -v modinfo >/dev/null 2>&1; then
+    printf 'Installed kernel module: '
+    modinfo -F version nvidia 2>/dev/null || true
+  fi
 else
   printf 'nvidia-smi is not installed\n'
+fi
+
+section 'CUDA toolkit'
+if command -v nvcc >/dev/null 2>&1; then
+  printf 'Selected compiler: %s\n' "$(command -v nvcc)"
+  nvcc --version 2>&1 || true
+else
+  printf 'nvcc is not on PATH\n'
+fi
+if [[ -x /usr/local/cuda/bin/nvcc ]] && [[ ! $(command -v nvcc) -ef /usr/local/cuda/bin/nvcc ]]; then
+  printf 'System toolkit: /usr/local/cuda/bin/nvcc\n'
+  printf 'To select it, source ~/.config/underlight/cuda.sh (unless using a custom toolkit).\n'
 fi
 
 section 'PRIME launcher'

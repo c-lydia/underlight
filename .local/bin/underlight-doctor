@@ -2,6 +2,12 @@
 
 set -uo pipefail
 
+android_environment="${XDG_CONFIG_HOME:-$HOME/.config}/underlight/android.sh"
+if [[ -r $android_environment ]]; then
+  # shellcheck disable=SC1090
+  . "$android_environment"
+fi
+
 pass=0
 warn=0
 fail=0
@@ -36,6 +42,8 @@ fi
 printf '\nGPU and power\n'
 if gpu_line=$(nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader 2>&1); then
   result PASS 'NVIDIA' "$gpu_line"
+elif [[ $gpu_line == *'Driver/library version mismatch'* ]]; then
+  result FAIL 'NVIDIA' 'driver/library version mismatch; save your work and reboot to load the updated driver'
 elif [[ -r /proc/driver/nvidia/version && ! -e /dev/nvidiactl ]]; then
   result WARN 'NVIDIA' 'driver loaded; this environment cannot see host GPU device nodes'
 elif [[ -r /proc/driver/nvidia/version ]]; then
@@ -50,6 +58,16 @@ else
   result WARN 'PRIME offload' 'switcheroo-control is not installed'
 fi
 has powerprofilesctl
+cuda_home=${CUDA_HOME:-/usr/local/cuda}
+if [[ -x $cuda_home/bin/nvcc ]]; then
+  if [[ $(command -v nvcc) -ef $cuda_home/bin/nvcc ]]; then
+    result PASS 'CUDA compiler' "$(command -v nvcc)"
+  else
+    result WARN 'CUDA compiler' 'PATH does not select /usr/local/cuda/bin/nvcc; source ~/.config/underlight/cuda.sh (unless using a custom toolkit)'
+  fi
+else
+  has nvcc
+fi
 
 printf '\nAI stack\n'
 has ollama
@@ -82,6 +100,10 @@ if [[ -r $HOME/.hermes/gateway.pid ]]; then
 else
   result WARN 'Hermes gateway' 'no PID file'
 fi
+
+printf '\nAndroid and Flutter\n'
+for command in underlight-android adb flutter emulator sdkmanager; do has "$command"; done
+printf 'Run underlight-android doctor for SDK, licenses, and KVM details.\n'
 
 printf '\nDeveloper tools\n'
 has nvim

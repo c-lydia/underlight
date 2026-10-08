@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Underlight Network Lab
+Comment=Terminal network diagnostics and lab tools
+Exec=underlight-tui
+Icon=utilities-terminal
+Terminal=true
+Categories=Network;

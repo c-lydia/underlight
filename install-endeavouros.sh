@@ -5,12 +5,14 @@ set -euo pipefail
 repo_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 with_ai=false
 with_rag=false
+with_android=false
 
 usage() {
   printf '%s\n' \
-    'Usage: ./install-endeavouros.sh [--with-ai] [--with-rag]' \
+    'Usage: ./install-endeavouros.sh [--with-ai] [--with-rag] [--with-android]' \
     '' \
     'Default: install Underlight, the Neovim workbench, and give_laptop_ac.' \
+    '  --with-android  Install Android/Flutter prerequisites and the Flutter SDK.' \
     '  --with-ai   Also install Ollama and OpenCode; no models are downloaded.' \
     '  --with-rag  Also install the RAG pipeline and its Python environment.' \
     '              This implies --with-ai; indexes and models remain opt-in.'
@@ -18,6 +20,7 @@ usage() {
 
 while (($# > 0)); do
   case $1 in
+    --with-android) with_android=true ;;
     --with-ai) with_ai=true ;;
     --with-rag) with_rag=true; with_ai=true ;;
     -h|--help) usage; exit 0 ;;
@@ -144,6 +147,10 @@ if [[ $with_rag == true ]]; then
   UNDERLIGHT_WITH_RAG=1 "$repo_dir/install.sh"
 else
   "$repo_dir/install.sh"
+fi
+
+if [[ $with_android == true ]]; then
+  "$repo_dir/.local/bin/underlight-android" setup
 fi
 
 printf '\nCreating the give_laptop_ac Python environment...\n'

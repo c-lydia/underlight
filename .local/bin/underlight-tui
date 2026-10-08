@@ -1,0 +1,330 @@
+#!/usr/bin/env python3
+"""Underlight's dependency-free terminal network lab for Linux and Termux/Arch."""
+import argparse
+import concurrent.futures
+import curses
+import os
+import re
+import shutil
+import socket
+import subprocess
+import sys
+import textwrap
+import time
+
+
+def run(args, timeout=10):
+    """Capture bounded diagnostics without invoking a shell."""
+    if not shutil.which(args[0]):
+        return f'{args[0]} is not installed.'
+    try:
+        result = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+        output = (result.stdout + result.stderr).strip()
+        return output or f'{args[0]} exited with status {result.returncode}.'
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return str(error)
+
+
+def host(value):
+    if not value or value.startswith('-') or any(c.isspace() or ord(c) < 32 for c in value):
+        raise ValueError('Enter a hostname or IP address, without spaces or command options.')
+    return value
+
+
+def port(value):
+    number = int(value)
+    if not 1 <= number <= 65535:
+        raise ValueError('Port must be between 1 and 65535.')
+    return number
+
+
+def status():
+    sections = [f'Host: {socket.gethostname()}',
+                'Android/PRoot shares the phone network. Some kernels restrict interface and socket details.']
+    for title, args in [('Addresses', ['ip', '-brief', 'address']),
+                        ('Routes', ['ip', 'route']),
+                        ('Listening sockets', ['ss', '-tuln'])]:
+        sections.append(f'{title}\n{run(args, 3)}')
+    return '\n\n'.join(sections)
+
+
+def dns(target):
+    # Keep resolver delays bounded by running getaddrinfo in a child process.
+    return run([sys.executable, '-c',
+                'import socket,sys; print("\\n".join(sorted({r[4][0] for r in socket.getaddrinfo(sys.argv[1], None)})))',
+                host(target)], 6)
+
+
+def tcp(target, number):
+    start = time.monotonic()
+    try:
+        with socket.create_connection((host(target), port(number)), timeout=3):
+            return f'{target}:{number} connected in {(time.monotonic() - start) * 1000:.1f} ms'
+    except OSError as error:
+        return f'{target}:{number}: {error}'
+
+
+def udp_listen(number, bind='0.0.0.0'):
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as listener:
+        listener.settimeout(10)
+        listener.bind((bind, port(number)))
+        try:
+            data, peer = listener.recvfrom(4096)
+        except socket.timeout:
+            return f'No UDP packet received on {bind}:{number} within 10 seconds.'
+        return f'UDP from {peer[0]}:{peer[1]} ({len(data)} bytes)\n{data.decode(errors="replace")}'
+
+
+def udp_send(target, number, message):
+    if len(message.encode()) > 4096:
+        raise ValueError('Keep test datagrams at or below 4096 bytes.')
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sender:
+        sender.sendto(message.encode(), (host(target), port(number)))
+    return f'UDP datagram sent to {target}:{number}; delivery is not acknowledged.'
+
+
+def clean(text):
+    text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', text)
+    return ''.join(c for c in text if c in '\n\t' or c.isprintable())
+
+
+def layout(height, width):
+    """A sidebar on desktops; a dedicated result page on narrow phone screens."""
+    return width >= 100 and height >= 20
+
+
+def put(screen, y, x, text, attr=0):
+    height, width = screen.getmaxyx()
+    if 0 <= y < height and 0 <= x < width - 1:
+        try:
+            screen.addnstr(y, x, clean(text), width - x - 1, attr)
+        except curses.error:
+            pass
+
+
+def prompt(screen, label):
+    screen.timeout(-1)
+    curses.echo()
+    try:
+        curses.curs_set(1)
+        height, width = screen.getmaxyx()
+        screen.move(height - 2, 0)
+        screen.clrtoeol()
+        put(screen, height - 2, 0, label)
+        x = min(len(label), max(0, width - 3))
+        answer = screen.getstr(height - 2, x, max(1, width - x - 2))
+        return answer.decode(errors='replace').strip()
+    finally:
+        curses.noecho()
+        try:
+            curses.curs_set(0)
+        except curses.error:
+            pass
+        screen.timeout(100)
+
+
+def interactive(screen, args, pause=False):
+    """Restore normal terminal handling for SSH, nmtui, and Android tools."""
+    curses.def_prog_mode()
+    curses.endwin()
+    try:
+        subprocess.run(args, check=False)
+        if pause:
+            input('\nPress Enter to return to Underlight...')
+    finally:
+        curses.reset_prog_mode()
+        screen.clear()
+        screen.refresh()
+
+
+def tui(screen):
+    try:
+        curses.curs_set(0)
+    except curses.error:
+        pass
+    screen.keypad(True)
+    screen.timeout(100)
+    accent = curses.A_BOLD
+    if curses.has_colors():
+        curses.start_color()
+        curses.use_default_colors()
+        curses.init_pair(1, curses.COLOR_CYAN, -1)
+        accent |= curses.color_pair(1)
+    actions = [('Network overview', 'Addresses, routes, and listening sockets; Android may restrict these.'),
+               ('DNS lookup', 'Resolve one hostname using the system resolver.'),
+               ('Ping host', 'Three ICMP probes. If Android blocks ping, try TCP instead.'),
+               ('TCP connection', 'Test one host and port with an ordinary TCP connection.'),
+               ('Receive UDP packet', 'Listen for one datagram on all IPv4 interfaces, for up to 10 seconds.'),
+               ('Send UDP packet', 'Send a short test datagram to a host and port.'),
+               ('SSH session', 'Open an interactive SSH session; exit to return here.')]
+    if shutil.which('underlight-net-admin'):
+        actions.extend([('NAT rule preview', 'Review IPv4 NAT rules without changing the host.'),
+                        ('Start NAT (root)', 'Requires real CAP_NET_ADMIN, configured interfaces, and IPv4 forwarding.'),
+                        ('Stop NAT (root)', 'Remove only the NAT rules created by Underlight.')])
+    if shutil.which('nmcli') and os.path.isdir('/run/systemd/system'):
+        actions.extend([('Start desktop hotspot', 'Create a NetworkManager hotspot on a spare Wi-Fi adapter.'),
+                        ('Stop desktop hotspot', 'Stop the Underlight NetworkManager hotspot.')])
+    if shutil.which('nmtui') and os.path.isdir('/run/systemd/system'):
+        actions.append(('Desktop network settings', 'Open NetworkManager nmtui, then return here.'))
+    if shutil.which('underlight-android') and (os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY')):
+        actions.extend([('Android Studio', 'Launch Android Studio on this desktop.'),
+                        ('Android emulator', 'Choose an existing AVD in the desktop picker.'),
+                        ('Android & Flutter doctor', 'Check SDK tools, Flutter, and emulator acceleration.')])
+    selected, scroll, result_page = 0, 0, False
+    output = 'Select a tool. No network probes run until you request them.'
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    pending = None
+    try:
+        while True:
+            if pending and pending.done():
+                try:
+                    output = pending.result()
+                except Exception as error:
+                    output = str(error)
+                pending = None
+            height, width = screen.getmaxyx()
+            screen.erase()
+            if height < 8 or width < 28:
+                put(screen, 0, 0, 'Resize to at least 28 x 8.')
+                put(screen, 2, 0, 'q: quit')
+            else:
+                wide = layout(height, width)
+                put(screen, 0, 1, 'UNDERLIGHT / NETWORK LAB', accent)
+                put(screen, 1, 1, f'{socket.gethostname()} | {"desktop" if wide else "compact"} | {"running..." if pending else "ready"}')
+                if wide or not result_page:
+                    visible = height - 6
+                    first = max(0, selected - visible + 1)
+                    for index, (name, _) in enumerate(actions[first:first + visible], first):
+                        put(screen, 3 + index - first, 1, ('> ' if index == selected else '  ') + name,
+                            curses.A_REVERSE if index == selected else 0)
+                if wide or result_page:
+                    x = 36 if wide else 1
+                    text_width = max(1, width - x - 2)
+                    lines = []
+                    for line in clean(output).splitlines():
+                        lines.extend(textwrap.wrap(line.expandtabs(4), text_width) or [''])
+                    scroll = min(scroll, max(0, len(lines) - (height - 6)))
+                    for offset, line in enumerate(lines[scroll:scroll + height - 6]):
+                        put(screen, 3 + offset, x, line)
+                elif not pending:
+                    put(screen, height - 3, 1, actions[selected][1])
+                put(screen, height - 2, 1, 'Up/Down: select | Enter: run | PgUp/PgDn: scroll' if wide else 'Up/Down: select/scroll | Enter: run')
+                put(screen, height - 1, 1, 'b: back  q: quit  | SSH: exit returns here', accent)
+            screen.refresh()
+            key = screen.getch()
+            if key in (ord('q'), 27):
+                break
+            if key in (ord('b'), curses.KEY_LEFT):
+                result_page = False
+            if key in (curses.KEY_UP, ord('k')):
+                if result_page and not layout(height, width):
+                    scroll = max(0, scroll - 1)
+                else:
+                    selected = (selected - 1) % len(actions)
+            if key in (curses.KEY_DOWN, ord('j')):
+                if result_page and not layout(height, width):
+                    scroll += 1
+                else:
+                    selected = (selected + 1) % len(actions)
+            if key == curses.KEY_NPAGE:
+                scroll += max(1, height - 6)
+            if key == curses.KEY_PPAGE:
+                scroll = max(0, scroll - max(1, height - 6))
+            if key not in (10, 13, curses.KEY_ENTER) or pending or height < 8 or width < 28:
+                continue
+            action = actions[selected][0]
+            try:
+                operation, args = None, ()
+                if action == 'Network overview':
+                    operation = status
+                elif action in ('DNS lookup', 'Ping host', 'TCP connection', 'Send UDP packet'):
+                    target = prompt(screen, 'Host: ')
+                    if not target:
+                        continue
+                    host(target)
+                    if action == 'DNS lookup':
+                        operation, args = dns, (target,)
+                    elif action == 'Ping host':
+                        operation, args = run, (['ping', '-c', '3', '-W', '2', '--', target],)
+                    else:
+                        number = prompt(screen, 'Port: ')
+                        if not number:
+                            continue
+                        port(number)
+                        if action == 'TCP connection':
+                            operation, args = tcp, (target, number)
+                        else:
+                            message = prompt(screen, 'Message: ')
+                            operation, args = udp_send, (target, number, message)
+                elif action == 'Receive UDP packet':
+                    number = prompt(screen, 'UDP port [55555]: ') or '55555'
+                    port(number)
+                    operation, args = udp_listen, (number,)
+                elif action == 'SSH session':
+                    target = prompt(screen, 'SSH [user@]host: ')
+                    if target:
+                        host(target)
+                        interactive(screen, ['ssh', '--', target])
+                    continue
+                elif action in ('NAT rule preview', 'Start NAT (root)'):
+                    uplink = prompt(screen, 'Uplink: ')
+                    downlink = prompt(screen, 'Downlink: ')
+                    subnet = prompt(screen, 'Downstream CIDR: ')
+                    if not all((uplink, downlink, subnet)):
+                        continue
+                    command = 'nat-plan' if action == 'NAT rule preview' else 'nat-start'
+                    operation, args = run, (['underlight-net-admin', command, uplink, downlink, subnet], 90)
+                elif action == 'Stop NAT (root)':
+                    operation, args = run, (['underlight-net-admin', 'nat-stop'], 90)
+                elif action in ('Start desktop hotspot', 'Stop desktop hotspot'):
+                    command = 'hotspot-start' if action == 'Start desktop hotspot' else 'hotspot-stop'
+                    interactive(screen, ['underlight-network', command], pause=True)
+                    continue
+                elif action == 'Desktop network settings':
+                    interactive(screen, ['nmtui'])
+                    continue
+                elif action == 'Android & Flutter doctor':
+                    interactive(screen, ['underlight-android', 'doctor'], pause=True)
+                    continue
+                else:
+                    command = 'studio' if action == 'Android Studio' else 'emulator'
+                    subprocess.Popen(['underlight-android', command], stdout=subprocess.DEVNULL,
+                                     stderr=subprocess.DEVNULL, start_new_session=True)
+                    output = f'Launched {action}.'
+                if operation:
+                    pending = executor.submit(operation, *args)
+                    output = f'Running {action}...'
+                scroll, result_page = 0, True
+            except (OSError, ValueError) as error:
+                output, result_page = str(error), True
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('command', nargs='?', default='tui', choices=['tui', 'status', 'dns', 'ping', 'tcp', 'udp-listen', 'udp-send'])
+    parser.add_argument('args', nargs='*')
+    options = parser.parse_args()
+    counts = {'tui': 0, 'status': 0, 'dns': 1, 'ping': 1, 'tcp': 2, 'udp-listen': 1, 'udp-send': 3}
+    if len(options.args) != counts[options.command]:
+        parser.error('Expected: dns HOST | ping HOST | tcp HOST PORT | udp-listen PORT | udp-send HOST PORT MESSAGE')
+    try:
+        if options.command == 'tui':
+            if not sys.stdin.isatty() or not sys.stdout.isatty():
+                parser.error('TUI needs a terminal. Use status, dns, ping, tcp, udp-listen, or udp-send for plain output.')
+            curses.wrapper(tui)
+            return 0
+        functions = {'status': status, 'dns': dns, 'tcp': tcp, 'udp-listen': udp_listen, 'udp-send': udp_send,
+                     'ping': lambda target: run(['ping', '-c', '3', '-W', '2', '--', host(target)])}
+        print(clean(functions[options.command](*options.args)))
+        return 0
+    except (OSError, ValueError, curses.error) as error:
+        print(f'underlight-tui: {error}', file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        return 130
+
+
+if __name__ == '__main__':
+    sys.exit(main())
