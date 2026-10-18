@@ -103,7 +103,7 @@ def build_prompt(query: str, chunks: list[dict], chat_history: list[dict] | None
 
 
 def ask_ollama(prompt: str, model: str | None = None,
-               max_context: int = 4096) -> str:
+               max_context: int = 4096, *, raise_on_error: bool = False) -> str:
     model = model or cfg["ollama"]["model"]
     payload = {
         "model": model,
@@ -119,13 +119,19 @@ def ask_ollama(prompt: str, model: str | None = None,
         resp = requests.post(OLLAMA_URL, json=payload, timeout=OLLAMA_TIMEOUT)
         resp.raise_for_status()
         data = resp.json()
-        return data.get("response", "")
+        answer = data.get("response")
+        if not isinstance(answer, str):
+            raise ValueError("Ollama response is missing its text response")
+        return answer
     except requests.exceptions.Timeout:
-        return f"[ERROR: Ollama timed out after {OLLAMA_TIMEOUT}s. Model may be loading or context too large.]"
+        error = f"Ollama timed out after {OLLAMA_TIMEOUT}s. Model may be loading or context too large."
     except requests.exceptions.ConnectionError:
-        return f"[ERROR: Cannot reach Ollama at {cfg['ollama']['base_url']}. Is it running?]"
+        error = f"Cannot reach Ollama at {cfg['ollama']['base_url']}. Is it running?"
     except Exception as e:
-        return f"[ERROR: Ollama call failed: {e}]"
+        error = f"Ollama call failed: {e}"
+    if raise_on_error:
+        raise RuntimeError(error)
+    return f"[ERROR: {error}]"
 
 
 def cmd_answer(args):

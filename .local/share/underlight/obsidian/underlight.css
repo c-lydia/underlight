@@ -1,0 +1,173 @@
+/* Underlight: the desktop's navy, cyan and pink, with quiet reading surfaces.
+   Disable this snippet in Appearance to return to your existing theme. */
+body.theme-dark {
+  --background-primary: #1a1b26;
+  --background-primary-alt: #1f2335;
+  --background-secondary: #16161e;
+  --background-secondary-alt: #13141c;
+  --background-modifier-border: #343b54;
+  --background-modifier-border-hover: #565f89;
+  --background-modifier-border-focus: #48cae4;
+  --background-modifier-hover: rgba(72, 202, 228, 0.08);
+  --background-modifier-active-hover: rgba(72, 202, 228, 0.14);
+  --background-modifier-form-field: #1f2335;
+  --background-modifier-error: rgba(247, 118, 142, 0.16);
+  --text-normal: #c0caf5;
+  --text-muted: #a9b1d6;
+  --text-faint: #828bb8;
+  --text-on-accent: #13141c;
+  --text-selection: rgba(122, 162, 247, 0.26);
+  --text-highlight-bg: rgba(224, 175, 104, 0.23);
+  --text-accent: #48cae4;
+  --text-accent-hover: #7dcfff;
+  --interactive-normal: #24283b;
+  --interactive-hover: #343b54;
+  --interactive-accent: #48cae4;
+  --interactive-accent-hover: #7dcfff;
+  --color-accent: #48cae4;
+  --color-red: #f7768e;
+  --color-orange: #ff9e64;
+  --color-yellow: #e0af68;
+  --color-green: #9ece6a;
+  --color-cyan: #48cae4;
+  --color-blue: #7aa2f7;
+  --color-purple: #bb9af7;
+  --color-pink: #e052a0;
+  --h1-color: #c0caf5;
+  --h2-color: #7dcfff;
+  --h3-color: #bb9af7;
+  --h4-color: #e0af68;
+  --h5-color: #a9b1d6;
+  --h6-color: #a9b1d6;
+  --link-color: #7dcfff;
+  --link-color-hover: #48cae4;
+  --link-external-color: #7aa2f7;
+  --link-unresolved-color: #bb9af7;
+  --tag-color: #bb9af7;
+  --tag-background: rgba(187, 154, 247, 0.10);
+  --tag-background-hover: rgba(187, 154, 247, 0.17);
+  --code-background: #16161e;
+  --code-normal: #c0caf5;
+  --code-comment: #828bb8;
+  --code-function: #7aa2f7;
+  --code-keyword: #bb9af7;
+  --code-string: #9ece6a;
+  --code-value: #ff9e64;
+  --code-operator: #7dcfff;
+  --code-punctuation: #a9b1d6;
+  --checkbox-color: #48cae4;
+  --checkbox-color-hover: #7dcfff;
+  --checkbox-marker-color: #13141c;
+  --checklist-done-color: #828bb8;
+  --nav-item-color-active: #7dcfff;
+  --nav-item-background-active: rgba(72, 202, 228, 0.10);
+  --nav-item-background-hover: rgba(72, 202, 228, 0.06);
+  --tab-text-color-active: #c0caf5;
+  --tab-background-active: #1a1b26;
+  --divider-color: #343b54;
+  --graph-line: #414868;
+  --graph-node: #7aa2f7;
+  --graph-node-tag: #bb9af7;
+  --graph-node-attachment: #e0af68;
+  --graph-node-focused: #48cae4;
+}
+
+body {
+  --file-line-width: 800px;
+  --line-height-normal: 1.65;
+  --heading-spacing: 1.5em;
+  --h1-size: 1.9em;
+  --h2-size: 1.4em;
+  --h3-size: 1.15em;
+  --h1-weight: 650;
+  --h2-weight: 600;
+  --inline-title-weight: 650;
+  --code-size: 0.88em;
+  --radius-s: 5px;
+  --radius-m: 9px;
+  --radius-l: 13px;
+  --input-radius: 7px;
+  --tab-radius-active: 8px;
+  --nav-item-padding: 6px 10px;
+  --nav-item-children-padding-start: 14px;
+}
+
+.theme-dark .workspace-tab-header.is-active::after {
+  content: "";
+  position: absolute;
+  inset: auto 14px 0;
+  height: 2px;
+  background: linear-gradient(90deg, #48cae4, #e052a0);
+  border-radius: 2px;
+}
+
+.theme-dark .nav-folder-title {
+  font-weight: 600;
+}
+
+.markdown-rendered pre,
+.markdown-source-view.mod-cm6 .cm-embed-block pre {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 9px;
+}
+
+.markdown-rendered blockquote {
+  border-left-width: 2px;
+  border-radius: 0 8px 8px 0;
+}
+
+.callout {
+  border-radius: 10px;
+  border-width: 1px;
+  padding: 14px 18px;
+}
+
+.theme-dark .callout[data-callout="focus"] {
+  --callout-color: 72, 202, 228;
+  --callout-icon: lucide-crosshair;
+}
+
+.theme-dark .callout[data-callout="experiment"] {
+  --callout-color: 224, 175, 104;
+  --callout-icon: lucide-flask-conical;
+}
+
+.theme-dark .callout[data-callout="reflection"] {
+  --callout-color: 224, 82, 160;
+  --callout-icon: lucide-moon;
+}
+
+.underlight-home {
+  --file-line-width: 940px;
+}
+
+.underlight-home .markdown-preview-section > div:first-child + div h1 {
+  letter-spacing: -0.025em;
+}
+
+.markdown-rendered table {
+  font-size: 0.94em;
+}
+
+.markdown-rendered .math-block {
+  overflow-x: auto;
+  padding-block: 0.5em;
+}
+
+@media print {
+  body.theme-dark {
+    --text-normal: #202020;
+    --text-muted: #444;
+    --text-faint: #555;
+    --background-primary: #fff;
+    --background-secondary: #f5f5f5;
+    --h1-color: #202020;
+    --h2-color: #202020;
+    --h3-color: #202020;
+    --h4-color: #202020;
+    --code-normal: #202020;
+    --code-background: #f5f5f5;
+    --link-color: #16566c;
+    --link-external-color: #16566c;
+  }
+}

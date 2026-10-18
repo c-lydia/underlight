@@ -29,6 +29,7 @@ for script in "${scripts[@]}"; do bash -n "$script"; done
 bash "$root/tests/cuda.sh"
 bash "$root/tests/android.sh"
 python3 "$root/tests/test_terminal.py"
+python3 "$root/tests/test_obsidian.py"
 for script in "${scripts[@]}"; do
   [[ -x $script ]] || { printf 'not executable: %s\n' "$script" >&2; exit 1; }
 done
@@ -40,7 +41,7 @@ missing_gpu_output=$(
 [[ $missing_gpu_output == *'command not found: underlight-command-that-does-not-exist'* ]]
 python3 -m json.tool "$root/.config/waybar/config.jsonc" >/dev/null
 PYTHONPATH="$root/.local/share/underlight/rag_pipeline" \
-  python3 -m unittest -q test_rag_pipeline
+  python3 -m unittest discover -s "$root/.local/share/underlight/rag_pipeline" -p 'test_*.py' -q
 
 test_root=$(mktemp -d)
 trap 'rm -rf -- "$test_root"' EXIT
@@ -55,6 +56,8 @@ HOME="$test_home" XDG_STATE_HOME="$test_state" \
 [[ -L $test_home/.config/nvim ]]
 [[ $(readlink -f -- "$test_home/.config/nvim") == $(readlink -f -- "$test_workbench") ]]
 [[ -L $test_home/.local/bin/underlight-control ]]
+[[ -x $test_home/.local/bin/underlight-obsidian ]]
+[[ -L $test_home/.local/share/underlight/obsidian ]]
 [[ -L $test_home/.local/bin/underlight-doctor ]]
 [[ -L $test_home/.config/nvim/after/plugin/underlight-transparent.lua ]]
 [[ -L $test_home/.config/nvim/after/plugin/underlight-persistence.lua ]]
@@ -111,6 +114,7 @@ if [[ -e $test_home/.local/bin/ros2-workspace || -L $test_home/.local/bin/ros2-w
 fi
 
 for removed in .config/underlight/cuda.sh .config/underlight/android.sh .config/underlight/toolchains.sh \
+  .local/bin/underlight-obsidian .local/share/underlight/obsidian \
   .local/bin/underlight-android .local/bin/underlight-tui .local/bin/underlight-net-admin \
   .local/share/applications/underlight-android.desktop .local/share/applications/underlight-terminal.desktop; do
   [[ ! -e $test_home/$removed && ! -L $test_home/$removed ]]

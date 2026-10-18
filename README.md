@@ -28,9 +28,19 @@ and safe modification workflow, see
 - Opt-in AC, battery, and AI performance profiles
 - A bundled, transparent `give_laptop_ac` dashboard and optional RAG pipeline
 - Persistent five-shell ROS 2/SSH workspaces with client keepalives
+- Obsidian styling and templates for projects, research, daily planning, and journaling
 - A hardware-safe 2.4 GHz NetworkManager phone-hotspot workflow
 
 ## Components and architecture
+
+### Obsidian workbench
+
+The desktop installer includes `underlight-obsidian` and its portable vault
+assets. Close Obsidian, then run `underlight-obsidian /path/to/your/vault` to
+apply the navy/cyan/pink appearance, capture folders, daily notes, templates,
+and a bookmarked **Underlight Home** note. Each apply backs up changed files;
+existing notes, plugins, and unrelated settings are preserved. See
+[the Obsidian guide](docs/OBSIDIAN.md) for shortcuts and rollback.
 
 Underlight is a configuration and orchestration layer around Hyprland, not a
 single long-running application. Hyprland is the composition root: it loads the
@@ -197,8 +207,9 @@ standard Wayland/Linux tools:
   AI tools, diagnostics, profiles, and the laptop dashboard.
 - `underlight-health-notify` reports a real host NVIDIA failure after login,
   while staying quiet when the driver is healthy or device nodes are hidden.
-- `underlight-laptop` prefers a working copy at `~/projects/give_laptop_ac` and
-  otherwise opens the bundled copy. Press `Super+Shift+A` to launch it.
+- `underlight-laptop` opens the bundled dashboard so Underlight updates apply.
+  Set `GIVE_LAPTOP_AC_HOME` to use a separate checkout; a legacy
+  `~/projects/give_laptop_ac` is the fallback. Press `Super+Shift+A` to launch it.
 - `underlight-rag` exposes the optional local RAG indexer, assistant, chat
   tracker, and HTTP server without storing indexes or models in this repo.
 - `underlight-install-extras` installs the optional Ubuntu utilities used by

@@ -2,20 +2,25 @@
 
 set -euo pipefail
 
+data_root="${XDG_DATA_HOME:-${HOME:?}/.local/share}/underlight"
 if [[ -n ${GIVE_LAPTOP_AC_HOME:-} ]]; then
   project=$GIVE_LAPTOP_AC_HOME
+elif [[ -f $data_root/give_laptop_ac/main.py ]]; then
+  project=$data_root/give_laptop_ac
 elif [[ -f ${HOME:?}/projects/give_laptop_ac/main.py ]]; then
   project=$HOME/projects/give_laptop_ac
 else
-  project="$HOME/.local/share/underlight/give_laptop_ac"
+  project="$data_root/give_laptop_ac"
 fi
 main="$project/main.py"
 [[ -f $main ]] || { printf 'underlight-laptop: project not found: %s\n' "$project" >&2; exit 1; }
 
 if [[ -x $project/.venv/bin/python ]]; then
   python="$project/.venv/bin/python"
-elif [[ -x $HOME/.local/share/underlight/venvs/give_laptop_ac/bin/python ]]; then
-  python="$HOME/.local/share/underlight/venvs/give_laptop_ac/bin/python"
+elif [[ -x $data_root/venvs/give_laptop_ac/bin/python ]]; then
+  python="$data_root/venvs/give_laptop_ac/bin/python"
+elif [[ $project == "$data_root/give_laptop_ac" && -x $HOME/projects/give_laptop_ac/.venv/bin/python ]]; then
+  python="$HOME/projects/give_laptop_ac/.venv/bin/python"
 elif command -v python3 >/dev/null 2>&1; then
   python=$(command -v python3)
 else
@@ -26,16 +31,16 @@ fi
 if [[ ${1:-} == --inline ]]; then
   shift
   cd -- "$project"
-  exec "$python" "$main" "$@"
+  exec env -u PYTHONPATH "$python" "$main" "$@"
 fi
 
 if command -v kitty >/dev/null 2>&1; then
-  exec kitty --class give_laptop_ac --title 'Laptop & GPU Control' \
+  exec env -u PYTHONPATH kitty --class give_laptop_ac --title 'Laptop & GPU Control' \
     --directory "$project" "$python" "$main" "$@"
 fi
 
 if command -v x-terminal-emulator >/dev/null 2>&1; then
-  exec x-terminal-emulator -e "$python" "$main" "$@"
+  exec env -u PYTHONPATH x-terminal-emulator -e "$python" "$main" "$@"
 fi
 
 printf 'underlight-laptop: install kitty or run %s %s\n' "$python" "$main" >&2

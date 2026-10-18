@@ -10,7 +10,10 @@ from __future__ import annotations
 import argparse
 import hashlib
 import fnmatch
+import json
+import os
 import re
+import tempfile
 import time
 import uuid
 from pathlib import Path
@@ -18,7 +21,7 @@ from typing import Any
 
 from tqdm import tqdm
 from config_loader import load_config
-from rag_core import Embedder, document_schema, sql_string, table_exists, upsert_rows
+from rag_core import Embedder, document_schema, sql_string, table_exists
 
 
 # ---------------------------------------------------------------------------
@@ -123,18 +126,13 @@ def chunk_kicad(text: str) -> list[str]:
 
 
 def chunk_pdf_pages(pdf_path: Path) -> list[str]:
-    try:
-        import fitz  # pymupdf
-    except ImportError:
-        print("pymupdf not installed for PDF chunking — pip install pymupdf")
-        return [f"[PDF: {pdf_path.name} — pymupdf not installed]"]
-    doc = fitz.open(str(pdf_path))
+    import fitz  # pymupdf
     out = []
-    for i, page in enumerate(doc):
-        txt = page.get_text().strip()
-        if txt:
-            out.append(f"[PAGE {i+1} of {pdf_path.name}]\n{txt}")
-    doc.close()
+    with fitz.open(str(pdf_path)) as doc:
+        for i, page in enumerate(doc):
+            txt = page.get_text().strip()
+            if txt:
+                out.append(f"[PAGE {i+1} of {pdf_path.name}]\n{txt}")
     return out or [f"[PDF: {pdf_path.name} — no extractable text]"]
 
 
@@ -147,11 +145,7 @@ def ocr_image(img_path: Path, ocr_cfg: dict[str, Any]) -> str:
     langs = ocr_cfg.get("languages", ["en"])
     gpu = bool(ocr_cfg.get("gpu", False))
     if ocr_cfg.get("engine", "tesseract") == "easyocr":
-        try:
-            import easyocr
-        except ImportError:
-            print("easyocr not installed — pip install easyocr")
-            return f"[OCR SKIPPED: easyocr missing for {img_path.name}]"
+        import easyocr
         reader = easyocr.Reader(
             langs, gpu=gpu, verbose=False,
         )
@@ -160,20 +154,13 @@ def ocr_image(img_path: Path, ocr_cfg: dict[str, Any]) -> str:
         return "\n".join(texts) if texts else f"[OCR: no text found in {img_path.name}]"
     else:
         # Tesseract CPU fallback
-        try:
-            import pytesseract
-            from PIL import Image
-        except ImportError:
-            print("pytesseract/PIL not installed for Tesseract OCR")
-            return f"[OCR SKIPPED: tesseract missing for {img_path.name}]"
-        try:
-            img = Image.open(str(img_path))
+        import pytesseract
+        from PIL import Image
+        with Image.open(str(img_path)) as img:
             txt = pytesseract.image_to_string(
                 img, lang=ocr_cfg.get("tesseract", {}).get("lang", "eng")
             )
             return txt.strip() or f"[OCR: no text found in {img_path.name}]"
-        except Exception as e:
-            return f"[OCR ERROR: {img_path.name}: {e}]"
 
 
 # ---------------------------------------------------------------------------
@@ -227,11 +214,7 @@ def read_file_text(path: Path, source_cfg: dict[str, Any], cfg: dict[str, Any]) 
         return chunks
 
     # text-ish files
-    try:
-        raw = path.read_text(encoding="utf-8", errors="replace")
-    except Exception as e:
-        chunks.append((f"[READ ERROR: {path.name}: {e}]", f"err:{path.name}"))
-        return chunks
+    raw = path.read_text(encoding="utf-8", errors="replace")
 
     if ext in {".kicad_pcb", ".kicad_sch", ".kicad_pro", ".kicad_sym", ".kicad_drill", ".kicad_lambda"}:
         for c in chunk_kicad(raw):
@@ -253,143 +236,179 @@ def read_file_text(path: Path, source_cfg: dict[str, Any], cfg: dict[str, Any]) 
 # ---------------------------------------------------------------------------
 # Indexing
 # ---------------------------------------------------------------------------
-def _open_table(db: Any, table_name: str, dimension: int, rebuild: bool = False):
-    if rebuild and table_exists(db, table_name):
-        db.drop_table(table_name)
-    if table_exists(db, table_name):
-        table = db.open_table(table_name)
-        fields = {field.name: field for field in table.schema}
-        if "generation" not in fields:
-            raise RuntimeError(
-                f"Table '{table_name}' uses the old schema; rerun with --rebuild."
-            )
-        vector_size = getattr(fields["embedding"].type, "list_size", None)
-        if vector_size != dimension:
-            raise RuntimeError(
-                f"Table '{table_name}' has {vector_size}-dimensional vectors, but the "
-                f"configured embedder returned {dimension}; rerun with --rebuild."
-            )
-        return table, table.schema
-    schema = document_schema(dimension)
-    return db.create_table(table_name, schema=schema), schema
+def embedding_signature(cfg: dict[str, Any]) -> bytes:
+    """Invalidate cached vectors when their configured model/provider changes."""
+    settings = dict(cfg["embedder"])
+    settings.pop("batch_size", None)
+    if settings.get("device") == "ollama":
+        settings["ollama_base_url"] = settings.get(
+            "ollama_base_url", cfg.get("ollama", {}).get("base_url")
+        )
+    return hashlib.sha256(json.dumps(settings, sort_keys=True).encode()).hexdigest().encode()
+
+
+def _excluded(relative: Path, patterns: list[str]) -> bool:
+    return any(
+        relative.match(pattern) or relative.match(f"**/{pattern}")
+        or any(fnmatch.fnmatch(part, pattern) for part in relative.parts)
+        for pattern in patterns
+    )
 
 
 def index_dir(source_cfg: dict[str, Any], table_name: str, project_label: str,
               cfg: dict[str, Any], embedder: Embedder | None = None,
               db: Any = None, dry_run: bool = False, rebuild: bool = False,
               verbose_dry_run: bool = False) -> int:
-    root = Path(source_cfg["root"])
-    root = root.expanduser().resolve()
+    root = Path(source_cfg["root"]).expanduser().resolve()
     if not root.exists():
         print(f"SKIP: {root} does not exist")
         return 0
+    if not root.is_dir():
+        raise ValueError(f"Index source is not a directory: {root}")
 
-    # collect files
-    files: list[Path] = []
-    for path in root.rglob("*"):
-        if should_index(path, root, source_cfg):
-            files.append(path)
+    # Unlike rglob, report unreadable directories instead of treating their
+    # contents as deleted. Excluded trees are never traversed.
+    def scan_error(error):
+        raise error
 
+    files = []
+    for directory, directories, names in os.walk(root, onerror=scan_error):
+        parent = Path(directory)
+        directories[:] = [name for name in directories
+                          if not (parent / name).is_symlink()
+                          and not _excluded((parent / name).relative_to(root), source_cfg.get("exclude", []))]
+        for name in names:
+            path = parent / name
+            if should_index(path, root, source_cfg):
+                files.append(path)
+    files.sort()
     print(f"Found {len(files)} files to index under {root}")
     if dry_run:
-        shown = files if verbose_dry_run else files[:50]
-        for f in shown:
-            print("  DRY:", f)
-        if len(shown) < len(files):
-            print(f"  ... {len(files) - len(shown)} more files; add --verbose to show all")
+        for path in files if verbose_dry_run else files[:50]:
+            print("  DRY:", path)
+        if not verbose_dry_run and len(files) > 50:
+            print(f"  ... {len(files) - 50} more files; add --verbose to show all")
         return 0
-
     if db is None or embedder is None:
         raise RuntimeError("index_dir requires a database and embedder when not in dry-run mode")
-    if rebuild and table_exists(db, table_name):
-        db.drop_table(table_name)
-        rebuild = False
-    pending: list[dict[str, Any]] = []
-    rows: list[dict[str, Any]] = []
-    table = None
-    schema = None
-    generation = uuid.uuid4().hex
-    t0 = time.time()
-    processed = 0
-    errors = 0
-    chunk_count = 0
-    duplicate_count = 0
-    seen_ids: set[str] = set()
-    embed_batch_size = max(1, int(cfg["embedder"].get("batch_size", 64)))
 
-    def flush_embeddings() -> None:
-        nonlocal table, schema, rebuild, chunk_count, rows
-        if not pending:
-            return
-        embeddings = embedder.embed([item["text"] for item in pending])
-        if len(embeddings) != len(pending):
-            raise RuntimeError(
-                f"Embedder returned {len(embeddings)} vectors for {len(pending)} chunks"
-            )
-        for item, embedding in zip(pending, embeddings):
-            item["embedding"] = embedding
-            rows.append(item)
-            chunk_count += 1
-        pending.clear()
-        if len(rows) >= 2000:
-            if table is None:
-                table, schema = _open_table(
-                    db, table_name, len(rows[0]["embedding"]), rebuild
-                )
-                rebuild = False
-            upsert_rows(table, rows, schema)
-            rows = []
+    import pyarrow as pa
 
-    for path in tqdm(files, desc=f"indexing {root.name}", unit="file"):
-        try:
-            chunks = read_file_text(path, source_cfg, cfg)
-        except Exception as exc:
-            errors += 1
-            tqdm.write(f"WARN: failed to read {path}: {exc}")
-            continue
-        if not chunks:
-            continue
-        for text, src in chunks:
-            doc_id = hashlib.sha256(f"{path}|{src}|{text}".encode()).hexdigest()[:16]
-            if doc_id in seen_ids:
-                duplicate_count += 1
-                continue
-            seen_ids.add(doc_id)
-            pending.append({
-                "id": doc_id,
-                "text": text,
-                "source": src,
-                "path": str(path),
-                "kind": src.split(":")[0],
-                "project": project_label,
-                "generation": generation,
-            })
-            if len(pending) >= embed_batch_size:
-                flush_embeddings()
-        processed += 1
-
-    flush_embeddings()
-    if rows:
-        if table is None:
-            table, schema = _open_table(db, table_name, len(rows[0]["embedding"]), rebuild)
-        upsert_rows(table, rows, schema)
-
-    if table is None and table_exists(db, table_name):
-        table = db.open_table(table_name)
-        if "generation" not in table.schema.names:
+    existing = db.open_table(table_name) if table_exists(db, table_name) else None
+    signature = embedding_signature(cfg)
+    old_signature = (existing.schema.metadata or {}).get(b"underlight.embedding") if existing else None
+    if existing is not None and not rebuild:
+        if "generation" not in existing.schema.names:
             raise RuntimeError(f"Table '{table_name}' uses the old schema; rerun with --rebuild.")
-    if table is not None and errors == 0:
-        table.delete(
-            f"project = {sql_string(project_label)} AND generation != {sql_string(generation)}"
-        )
-    elif errors:
-        print("Preserving previous-generation chunks because one or more files failed.")
+        if old_signature is not None and old_signature != signature:
+            raise RuntimeError("Embedding configuration changed; rerun with --rebuild to avoid mixing models.")
+    cache_enabled = existing is not None and not rebuild and old_signature == signature
+    metadata = {b"underlight.embedding": signature}
+    if (existing is not None and not rebuild and old_signature is None
+            and existing.count_rows(f"project != {sql_string(project_label)}")):
+        # Do not certify the model of legacy rows belonging to another source.
+        metadata = {}
+    original_version = existing.version if existing is not None else None
+    generation = uuid.uuid4().hex
+    batch_size = max(1, int(cfg["embedder"].get("batch_size", 64)))
+    pending = []
+    seen_ids = set()
+    errors = []
+    chunk_count = reused = duplicates = 0
+    started = time.monotonic()
 
-    elapsed = time.time() - t0
-    print(f"Indexed {processed} files, {errors} errors, {chunk_count} unique chunks "
-          f"→ table '{table_name}' in {elapsed:.1f}s")
-    if duplicate_count:
-        print(f"Skipped {duplicate_count} duplicate chunks with identical source text.")
+    # Stage the complete replacement on disk. No live table is changed until
+    # all reads and embeddings succeed. LanceDB overwrite commits a new version
+    # rather than dropping the previous table before work starts.
+    with tempfile.TemporaryFile() as spool:
+        writer = None
+        schema = None
+
+        def stage(rows):
+            nonlocal writer, schema
+            if not rows:
+                return
+            dimension = len(rows[0]["embedding"])
+            if dimension == 0 or any(len(row["embedding"]) != dimension for row in rows):
+                raise RuntimeError("Embedder returned empty or inconsistent vectors")
+            if schema is None:
+                if existing is not None and not rebuild:
+                    old_dimension = existing.schema.field("embedding").type.list_size
+                    if old_dimension != dimension and existing.count_rows() > 0:
+                        raise RuntimeError("Embedding dimension changed; rerun with --rebuild.")
+                schema = document_schema(dimension).with_metadata(metadata)
+                writer = pa.ipc.new_file(spool, schema)
+            writer.write_table(pa.Table.from_pylist(rows, schema=schema))
+
+        def flush():
+            if not pending:
+                return
+            vectors = embedder.embed([item["text"] for item in pending])
+            if len(vectors) != len(pending):
+                raise RuntimeError(f"Embedder returned {len(vectors)} vectors for {len(pending)} chunks")
+            stage([dict(item, embedding=vector) for item, vector in zip(pending, vectors)])
+            pending.clear()
+
+        try:
+            for path in tqdm(files, desc=f"indexing {root.name}", unit="file"):
+                try:
+                    chunks = read_file_text(path, source_cfg, cfg)
+                except Exception as exc:
+                    errors.append(path)
+                    tqdm.write(f"WARN: failed to read {path}: {exc}")
+                    continue
+                cached = {}
+                if cache_enabled:
+                    cached = {row["id"]: row["embedding"] for row in
+                              existing.search().where(
+                                  f"project = {sql_string(project_label)} AND path = {sql_string(str(path))}"
+                              ).select(["id", "embedding"]).limit(None).to_list()}
+                for text, src in chunks:
+                    doc_id = hashlib.sha256(f"{path}|{src}|{text}".encode()).hexdigest()[:16]
+                    if doc_id in seen_ids:
+                        duplicates += 1
+                        continue
+                    seen_ids.add(doc_id)
+                    item = dict(id=doc_id, text=text, source=src, path=str(path),
+                                kind=src.split(":")[0], project=project_label, generation=generation)
+                    if doc_id in cached:
+                        stage([dict(item, embedding=cached[doc_id])])
+                        reused += 1
+                    else:
+                        pending.append(item)
+                    chunk_count += 1
+                    if len(pending) >= batch_size:
+                        flush()
+            if errors:
+                raise RuntimeError(f"Index update aborted: {len(errors)} files failed; previous index preserved.")
+            flush()
+            # A normal update must not remove other sources sharing this table.
+            if existing is not None and not rebuild:
+                for batch in existing.search().where(
+                    f"project != {sql_string(project_label)}"
+                ).limit(None).to_batches(batch_size=1024):
+                    stage(batch.to_pylist())
+            if writer is None and existing is not None:
+                schema = existing.schema.with_metadata(metadata)
+                writer = pa.ipc.new_file(spool, schema)
+        finally:
+            if writer is not None:
+                writer.close()
+
+        if schema is not None:
+            if existing is not None and db.open_table(table_name).version != original_version:
+                raise RuntimeError("Index changed during this run; previous index preserved. Retry the update.")
+            spool.seek(0)
+            staged = pa.ipc.open_file(spool)
+            batches = pa.RecordBatchReader.from_batches(
+                schema, (staged.get_batch(i) for i in range(staged.num_record_batches))
+            )
+            db.create_table(table_name, data=batches, schema=schema,
+                            mode="overwrite" if existing is not None else "create")
+    print(f"Indexed {len(files)} files, {chunk_count} unique chunks ({reused} cached) "
+          f"→ table '{table_name}' in {time.monotonic() - started:.1f}s")
+    if duplicates:
+        print(f"Skipped {duplicates} duplicate chunks with identical source text.")
     return chunk_count
 
 
@@ -400,7 +419,7 @@ def main():
     parser.add_argument("--dry-run", action="store_true",
                         help="list files without indexing")
     parser.add_argument("--rebuild", action="store_true",
-                        help="replace incompatible/old tables before indexing")
+                        help="build a fresh index and replace the old table only after success")
     parser.add_argument("--verbose", action="store_true",
                         help="show every matching file during a dry run")
     args = parser.parse_args()

@@ -8,7 +8,9 @@ import unittest
 
 from fan_backend import BackendError, FanBackend
 
-DAEMON = Path(__file__).resolve().parents[1] / "msi-ec-daemon/build/msi-ec-daemon"
+DAEMON = Path(os.environ.get("MSI_EC_TEST_DAEMON", str(
+    Path(__file__).resolve().parents[1] / "msi-ec-daemon/build/msi-ec-daemon"
+)))
 
 
 @unittest.skipUnless(os.environ.get("MSI_EC_TEST_BUS") == "1" and DAEMON.exists(), "requires isolated D-Bus test session and built daemon")

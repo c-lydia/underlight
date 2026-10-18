@@ -1,6 +1,7 @@
 from contextlib import ExitStack
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -9,7 +10,7 @@ from config import Settings
 from hardware import WriteResult, write_verified
 from telemetry import TelemetrySnapshot
 from fan_backend import BackendError, BackendStatus, FanBackend
-from textual.widgets import Button, Collapsible, Footer, Sparkline, TabbedContent
+from textual.widgets import Button, Collapsible, DataTable, Footer, Sparkline, TabbedContent
 
 
 class TUITests(unittest.IsolatedAsyncioTestCase):
@@ -40,6 +41,7 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
         self.save = self.stack.enter_context(patch.object(main, "save_config", return_value=True))
         self.apply_config_impl = main.GiveLaptopAC._apply_config
         self.stack.enter_context(patch.object(main.GiveLaptopAC, "_apply_config"))
+        self.tick_procs_impl = main.GiveLaptopAC._tick_procs
         self.stack.enter_context(patch.object(main.GiveLaptopAC, "_tick_procs"))
         self.backend = Mock(spec=FanBackend)
         self.backend.status = BackendStatus(reason="Service offline (test)")
@@ -57,6 +59,55 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
         self.sample = TelemetrySnapshot(values, per_core=[10, 20, 30, 40])
         sampler = self.stack.enter_context(patch.object(main, "TelemetrySampler"))
         sampler.return_value.sample.return_value = self.sample
+
+    @staticmethod
+    def process(pid, cpu, started=1.0):
+        return SimpleNamespace(info={"pid": pid, "name": f"process-{pid}", "cpu_percent": cpu,
+                                     "memory_percent": 1, "memory_info": None, "create_time": started})
+
+    async def test_process_selection_survives_refresh_and_sort_changes(self):
+        app = main.GiveLaptopAC()
+        async with app.run_test(size=(100, 30)) as pilot:
+            table = app.query_one("#ptable", DataTable)
+            with patch.object(main.psutil, "process_iter", return_value=[self.process(111, 80), self.process(222, 20)]) as processes:
+                self.tick_procs_impl(app)
+                table.move_cursor(row=1)
+                await pilot.pause()
+                self.tick_procs_impl(app)
+                await pilot.pause()
+                self.assertEqual(app._processes[table.cursor_row], (222, 1.0))
+                processes.return_value = [self.process(111, 10), self.process(222, 90)]
+                self.tick_procs_impl(app)
+                await pilot.pause()
+                self.assertEqual(app._processes[table.cursor_row], (222, 1.0))
+                with patch.object(main.psutil, "Process") as process:
+                    process.return_value.create_time.return_value = 1.0
+                    app.on_kill()
+                    process.assert_called_once_with(222)
+                    process.return_value.terminate.assert_called_once()
+
+    async def test_exited_selection_and_reused_pid_are_not_signalled(self):
+        app = main.GiveLaptopAC()
+        async with app.run_test(size=(100, 30)) as pilot:
+            table = app.query_one("#ptable", DataTable)
+            with patch.object(main.psutil, "process_iter", return_value=[self.process(111, 80), self.process(222, 20)]) as processes:
+                self.tick_procs_impl(app)
+                table.move_cursor(row=1)
+                await pilot.pause()
+                with patch.object(main.psutil, "Process") as process:
+                    process.return_value.create_time.return_value = 99.0
+                    app.on_kill()
+                    process.return_value.terminate.assert_not_called()
+                processes.return_value = [self.process(111, 80)]
+                self.tick_procs_impl(app)
+                await pilot.pause()
+                with patch.object(main.psutil, "Process") as process:
+                    app.on_kill()
+                    process.assert_not_called()
+                # Repeated refreshes must not silently choose a replacement.
+                self.tick_procs_impl(app)
+                await pilot.pause()
+                self.assertTrue(app._process_selection_lost)
 
     async def test_rejected_mode_does_not_change_highlight_or_saved_settings(self):
         app = main.GiveLaptopAC()

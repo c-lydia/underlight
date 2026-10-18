@@ -1,0 +1,34 @@
+{
+  "app": {
+    "alwaysUpdateLinks": true,
+    "newFileLocation": "folder",
+    "newFileFolderPath": "00 Inbox",
+    "attachmentFolderPath": "91 Attachments",
+    "readableLineLength": true,
+    "defaultViewMode": "source",
+    "livePreview": true,
+    "foldHeading": true,
+    "foldIndent": true,
+    "showIndentGuide": true,
+    "showLineNumber": false
+  },
+  "appearance": {
+    "theme": "obsidian",
+    "accentColor": "#48cae4",
+    "interfaceFontFamily": "Ubuntu Sans, Noto Sans",
+    "textFontFamily": "Ubuntu Sans, Noto Sans",
+    "monospaceFontFamily": "Noto Sans Mono",
+    "baseFontSize": 16
+  },
+  "daily-notes": {
+    "folder": "01 Daily",
+    "format": "YYYY-MM-DD",
+    "template": "90 Templates/Daily.md",
+    "autorun": false
+  },
+  "templates": {
+    "folder": "90 Templates",
+    "dateFormat": "YYYY-MM-DD",
+    "timeFormat": "HH:mm"
+  }
+}

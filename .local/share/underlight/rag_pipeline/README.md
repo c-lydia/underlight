@@ -88,13 +88,26 @@ underlight-rag ask "what did we decide?" --remember --project robot
 underlight-rag ask "why does this board fail?" --verbose
 ```
 
-Indexing is incremental and deterministic. Existing chunk IDs are updated and
-chunks from deleted or excluded files are removed after a successful pass. Use
-`--rebuild` after changing embedding models or when upgrading an old table:
+Indexing reuses vectors for unchanged chunks when the embedding configuration
+matches. Files are still read to detect content changes. Deleted or excluded
+files disappear only after a successful pass. Older tables without embedding
+metadata are embedded once before caching becomes available.
+
+Updates, including `--rebuild`, are staged in a temporary file before publishing
+a new LanceDB table version. File-read, PDF/OCR, embedding, and staging failures
+abort the update and leave the previous index available. Temporary disk space
+is needed for the replacement snapshot. A normal update preserves other
+projects sharing the table; `--rebuild` replaces the entire selected table.
+
+Use `--rebuild` after changing embedding models or when upgrading an old table:
 
 ```bash
 underlight-rag index --table projects --rebuild
 ```
+
+Model/provider configuration changes require a rebuild even when vector sizes
+match. If a model's weights change behind the same name, explicitly rebuild;
+the cache compares configuration, not remotely downloaded model contents.
 
 ## Desktop and Neovim
 
@@ -175,6 +188,20 @@ curl -sS -X POST http://127.0.0.1:8080/ask \
 `POST /log` accepts `project`, `role`, and `text`. The server has no
 authentication; keep the default `127.0.0.1` binding unless the surrounding
 network is trusted and protected.
+
+Invalid JSON objects or field types return HTTP 400, and bodies over 1 MiB
+return 413. Retrieval failures return 503, generation failures return 502, and
+failed chat writes return 500 with `logged: false`. If remembering an otherwise
+successful answer fails, the error response includes that answer; a preceding
+chat message may already have been written. Failed writes are never reported
+as `logged: true`.
+
+Run the database, caching, and HTTP regression checks with the RAG environment:
+
+```bash
+~/.local/share/underlight/venvs/rag_pipeline/bin/python -m unittest discover \
+  -s ~/.local/share/underlight/rag_pipeline -p 'test_*.py' -v
+```
 
 ## OpenCode Zen and Hermes
 

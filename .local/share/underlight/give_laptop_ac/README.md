@@ -44,7 +44,8 @@ temperature/fan telemetry.
 
 ### Processes (Tab 3)
 - Sortable process table (CPU, RAM, Name)
-- Kill process (`🗡 Kill`)
+- Kill process (`🗡 Kill`); refreshes preserve selection by PID and start time,
+  and exited or reused PIDs are rejected before signalling
 - Drop caches (`🧹 Drop Cache`)
 
 ## Installation
@@ -52,15 +53,20 @@ temperature/fan telemetry.
 ```bash
 # Requires msi-ec kernel module (see msi-ec/ submodule)
 # Python deps:
-pip install textual psutil pynvml pydantic pyyaml
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
 
 # Run
-python main.py
+.venv/bin/python main.py
 ```
 
 From the Underlight Hyprland configuration, middle-click the Waybar GPU readout
 or press `Super+Shift+A`. The shared `underlight-laptop` launcher selects this
-project's virtual environment automatically.
+project's virtual environment automatically. It prefers the copy shipped with
+Underlight, so updates are not hidden by an older `~/projects/give_laptop_ac`
+checkout. Set `GIVE_LAPTOP_AC_HOME` to explicitly use another checkout. When
+needed, the bundled copy can reuse the legacy checkout's virtual environment.
+Inherited `PYTHONPATH` values are cleared to keep ROS packages out of it.
 
 ## Connect the backend
 
@@ -128,7 +134,8 @@ rm ~/.config/give_laptop_ac/config.yaml
 
 - Linux kernel with `msi-ec` module loaded
 - Running backend and `msi-ec` group membership for EC controls; local sysfs write permissions for battery/keyboard controls (or direct EC access)
-- NVIDIA GPU with `nvidia-smi`/`pynvml` for GPU stats
+- NVIDIA GPU with `nvidia-ml-py` (imported as `pynvml`) for GPU stats;
+  the separate deprecated `pynvml` distribution is not required
 - Python 3.10+
 
 ## Project Structure

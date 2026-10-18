@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Preserve process selection across refreshes and sorting using PID and start
+  time. Refuse termination when the selected process exits or its PID is reused.
+- Run dashboard, telemetry, hardware, C++ core, and isolated D-Bus tests in CI.
+- Use the requirements file for installation, including NVIDIA's `nvidia-ml-py`
+  bindings instead of the deprecated `pynvml` distribution.
+
 ## Hybrid GPU Desktop Integration (2026-09-21)
 
 - Retry NVML after a sleeping NVIDIA dGPU wakes instead of fixing GPU support

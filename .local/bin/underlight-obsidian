@@ -1,0 +1,195 @@
+#!/usr/bin/env python3
+"""Apply Underlight to an explicit Obsidian vault, with guarded rollback."""
+
+import argparse
+from datetime import datetime, timezone
+import hashlib
+import json
+import os
+from pathlib import Path
+import sys
+import tempfile
+
+
+ASSETS = Path(__file__).resolve().parents[1] / "share/underlight/obsidian"
+
+
+def digest(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def encode(value):
+    return (json.dumps(value, indent=2, ensure_ascii=False) + "\n").encode()
+
+
+def safe_path(root, relative):
+    path = root / relative
+    if Path(relative).is_absolute() or ".." in Path(relative).parts:
+        raise ValueError(f"Unsafe relative path: {relative}")
+    # Do not follow vault symlinks into unrelated files or dotfile checkouts.
+    for item in [path, *path.parents]:
+        if item == root:
+            break
+        if item.is_symlink():
+            raise ValueError(f"Refusing symlink: {item}")
+    return path
+
+
+def atomic_write(path, data):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, name = tempfile.mkstemp(prefix=".underlight-", dir=path.parent)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(data)
+        os.replace(name, path)
+    finally:
+        if os.path.exists(name):
+            os.unlink(name)
+
+
+def apply(vault):
+    vault = vault.expanduser().resolve()
+    if not (vault / ".obsidian").is_dir():
+        raise ValueError(f"Not an existing Obsidian vault: {vault}")
+    changes = {}
+
+    def read_config(name):
+        path = safe_path(vault, f".obsidian/{name}.json")
+        value = json.loads(path.read_text()) if path.exists() else {}
+        if not isinstance(value, dict):
+            raise ValueError(f"Expected a JSON object: {path}")
+        return value
+
+    def merge(name, values):
+        value = read_config(name)
+        value.update(values)
+        changes[f".obsidian/{name}.json"] = encode(value)
+
+    presets = json.loads((ASSETS / "settings.json").read_text())
+    for name, values in presets.items():
+        merge(name, values)
+    appearance = json.loads(changes[".obsidian/appearance.json"])
+    snippets = appearance.get("enabledCssSnippets", [])
+    if not isinstance(snippets, list):
+        raise ValueError("enabledCssSnippets must be a list")
+    appearance["enabledCssSnippets"] = list(dict.fromkeys([*snippets, "underlight"]))
+    changes[".obsidian/appearance.json"] = encode(appearance)
+
+    core_path = safe_path(vault, ".obsidian/core-plugins.json")
+    if core_path.exists():
+        core = json.loads(core_path.read_text())
+        required = ["daily-notes", "templates", "bookmarks", "outline", "backlink", "global-search", "file-recovery"]
+        if isinstance(core, list):
+            core = list(dict.fromkeys([*core, *required]))
+        elif isinstance(core, dict):
+            core.update(dict.fromkeys(required, True))
+        else:
+            raise ValueError("Unrecognized core-plugins.json format")
+        changes[".obsidian/core-plugins.json"] = encode(core)
+
+    hotkeys = read_config("hotkeys")
+    for command, key in [("daily-notes", "D"), ("insert-template", "T")]:
+        binding = {"modifiers": ["Mod", "Alt"], "key": key}
+        occupied = any(
+            h.get("key", "").upper() == key and set(h.get("modifiers", [])) == {"Mod", "Alt"}
+            for bindings in hotkeys.values() for h in bindings
+        )
+        if command not in hotkeys and not occupied:
+            hotkeys[command] = [binding]
+    changes[".obsidian/hotkeys.json"] = encode(hotkeys)
+
+    bookmarks = read_config("bookmarks")
+    items = bookmarks.setdefault("items", [])
+    def has_home(entries):
+        return any(item.get("path") == "Underlight Home.md" or has_home(item.get("items", [])) for item in entries)
+    if not has_home(items):
+        items.append({"type": "file", "ctime": int(datetime.now().timestamp() * 1000),
+                      "path": "Underlight Home.md", "title": "Underlight Home"})
+    changes[".obsidian/bookmarks.json"] = encode(bookmarks)
+    changes[".obsidian/snippets/underlight.css"] = (ASSETS / "underlight.css").read_bytes()
+    for source in sorted((ASSETS / "vault").rglob("*")):
+        if source.is_file():
+            relative = str(source.relative_to(ASSETS / "vault"))
+            if not safe_path(vault, relative).exists():
+                changes[relative] = source.read_bytes()
+
+    # Validate every destination before changing any of them.
+    originals = {}
+    for relative in list(changes):
+        path = safe_path(vault, relative)
+        original = path.read_bytes() if path.exists() else None
+        if original == changes[relative]:
+            del changes[relative]
+        else:
+            originals[relative] = original
+    folders = json.loads((ASSETS / "folders.json").read_text())
+    for folder in folders:
+        path = safe_path(vault, folder)
+        if path.exists() and not path.is_dir():
+            raise ValueError(f"Expected directory: {path}")
+    if not changes:
+        print(f"Underlight is already applied: {vault}")
+        return
+
+    state = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state")))
+    state = state / "underlight/obsidian"
+    state.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ-")
+    backup = Path(tempfile.mkdtemp(prefix=stamp, dir=state))
+    manifest = {"vault": str(vault), "files": {}}
+    for relative, data in changes.items():
+        original = originals[relative]
+        if original is not None:
+            atomic_write(backup / "original" / relative, original)
+        manifest["files"][relative] = {"existed": original is not None, "installed_sha256": digest(data)}
+    atomic_write(backup / "manifest.json", encode(manifest))
+    for folder in folders:
+        (vault / folder).mkdir(parents=True, exist_ok=True)
+    for relative, data in changes.items():
+        # Detect a save by Obsidian after we read its settings.
+        path = safe_path(vault, relative)
+        current = path.read_bytes() if path.exists() else None
+        if current != originals[relative]:
+            raise ValueError(f"File changed during setup: {path}. Backup: {backup}")
+        atomic_write(path, data)
+    print(f"Applied Underlight to {vault} ({len(changes)} files).")
+    print(f"Backup: {backup}")
+    print(f"Undo: underlight-obsidian --restore '{backup}'")
+    print("Reopen the vault to load settings, then open Underlight Home.")
+
+
+def restore(backup):
+    backup = backup.expanduser().resolve()
+    manifest = json.loads((backup / "manifest.json").read_text())
+    vault = Path(manifest["vault"])
+    restored = 0
+    for relative, info in manifest["files"].items():
+        path = safe_path(vault, relative)
+        if not path.is_file() or digest(path.read_bytes()) != info["installed_sha256"]:
+            print(f"Preserving changed or missing file: {relative}")
+            continue
+        if info["existed"]:
+            atomic_write(path, safe_path(backup / "original", relative).read_bytes())
+        else:
+            path.unlink()
+        restored += 1
+    print(f"Restored {restored} files. Empty workflow folders and backup retained.")
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("vault", nargs="?", type=Path, help="existing vault directory")
+    parser.add_argument("--restore", type=Path, metavar="BACKUP", help="undo an apply, preserving later edits")
+    args = parser.parse_args()
+    if bool(args.vault) == bool(args.restore):
+        parser.error("provide a vault path OR --restore BACKUP")
+    try:
+        restore(args.restore) if args.restore else apply(args.vault)
+    except (OSError, ValueError, TypeError, KeyError) as error:
+        print(f"underlight-obsidian: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

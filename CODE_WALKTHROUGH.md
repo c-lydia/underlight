@@ -306,9 +306,11 @@ server lifetime is independent of Neovim, and the SSH `config.d` snippet adds
 30-second keepalives with six missed probes allowed.
 
 `.local/bin/underlight-laptop` selects the dashboard source in this order:
-`GIVE_LAPTOP_AC_HOME`, `~/projects/give_laptop_ac`, then the bundled copy. It
-similarly prefers a project-local virtual environment, then Underlight's shared
-environment, then system Python. `--inline` runs in the current terminal;
+`GIVE_LAPTOP_AC_HOME`, the bundled copy, then `~/projects/give_laptop_ac`. It
+prefers a project-local virtual environment, then Underlight's shared
+environment. The bundled source can also reuse the legacy checkout's environment
+before falling back to system Python. Inherited `PYTHONPATH` is cleared.
+`--inline` runs in the current terminal;
 otherwise it prefers Kitty and falls back to `x-terminal-emulator`.
 
 `.local/bin/underlight-rag` verifies that the optional source, virtual
@@ -638,22 +640,21 @@ Chunk routing is extension-based:
 
 `should_index()` enforces file type, excluded path components, and a 100 MiB
 ceiling. `read_file_text()` selects PDF, image, KiCad, code, or text handling and
-returns `(text, source-description)` pairs. `make_table_schema()` defines source
-metadata plus a 384-float embedding. `index_dir()` discovers files, supports a
-non-mutating dry run, embeds each file's chunks, creates deterministic IDs,
-flushes batches of 2,000 rows, and writes the remainder. `main()` selects one or
-all configured roots.
-
-Current behavior worth knowing: table writes append rows rather than deleting
-an older row with the same ID, despite the helper name `upsert_table`; config
-`include` globs and image min/max sizes are present but are not consulted by the
-current indexer.
+returns `(text, source-description)` pairs, propagating read/OCR failures.
+`rag_core.document_schema()` uses the embedder's actual vector dimension.
+`index_dir()` discovers files with include/exclude and image-size filters,
+supports a non-mutating dry run, and stages a complete snapshot in an Arrow file.
+Deterministic chunk IDs allow unchanged vectors to be reused when the stored
+embedding signature matches the configured model/provider. Read or embedding
+failures abort publication; successful runs commit a new LanceDB version and
+remove deleted chunks. `--rebuild` bypasses the cache and replaces the selected
+table only after staging succeeds. `main()` selects one or all configured roots.
 
 ### Retrieval and generation: `assistant.py`
 
-The module loads config, the sentence-transformer model, and LanceDB at import
-time. `_table_exists()` handles LanceDB versions that return either names or
-tuples. `retrieve()` embeds a query, searches each requested table, converts
+The module loads config at import time, while embedding models are loaded lazily
+through `rag_core.Embedder`. The shared table helpers normalize LanceDB's table
+listing. `retrieve()` embeds a query, searches each requested table, converts
 distance to a score, filters by minimum score, globally sorts, and returns the
 top results.
 
@@ -661,7 +662,8 @@ top results.
 six remembered messages, adds a default or caller-provided system prompt, and
 appends the question. `ask_ollama()` calls `/api/generate` with non-streaming
 sampling options and converts timeout/connection failures into readable error
-strings. `cmd_answer()` reports three progress stages, optionally retrieves and
+strings for CLI callers; HTTP callers request exceptions so failures become
+HTTP errors. `cmd_answer()` reports three progress stages, optionally retrieves and
 logs chat history, and prints timing plus the answer. `cmd_ask_ollama()` skips
 retrieval. `main()` exposes these as `answer` and `ask`.
 
@@ -671,7 +673,7 @@ Chat entries are stored twice: append-only JSONL for readable history and an
 embedding table for semantic lookup. `_log_path()` sanitizes project labels.
 `log_message()` timestamps in UTC, appends JSON, embeds the text, and calls
 `store_msg()`. The table schema stores role, project, timestamp, metadata JSON,
-and a 384-float vector.
+and a vector sized to the configured embedder.
 
 `read_log()` returns recent chronological JSONL entries. `list_projects()`
 lists log stems. `query_chat()` searches the vector table, optionally filters a
@@ -687,6 +689,10 @@ project, and decodes metadata. Command handlers implement `log`, `query`, and
   chat memory, builds a prompt, asks Ollama, and returns answer/timing plus three
   context snippets.
 - `POST /log`: validates text and records a chat message.
+
+Requests must contain JSON objects with correctly typed fields and bodies no
+larger than 1 MiB. Retrieval, generation, and logging failures produce explicit
+HTTP errors; a failed write is never returned as `logged: true`.
 
 `_json()` writes UTF-8 JSON with explicit length. Default request logging is
 suppressed. `main()` binds the standard-library `HTTPServer` to configurable

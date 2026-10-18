@@ -7,8 +7,6 @@ Supports: Cyborg 15 A12U, and compatible MSI laptops.
 from __future__ import annotations
 
 import asyncio
-import os
-import signal
 import subprocess
 import sys
 import time
@@ -263,7 +261,8 @@ class GiveLaptopAC(App):
         super().__init__(*args, **kwargs)
         self._config: Settings = load_config()
         self._sort: str = "cpu"
-        self._pids: list[int] = []
+        self._processes: list[tuple[int, float]] = []
+        self._process_selection_lost = False
         self._nvml_ok: bool = False
         self._nvml_reason = "NVIDIA NVML has not been probed"
         self._nvml_retry_at = 0.0
@@ -972,15 +971,28 @@ class GiveLaptopAC(App):
     @on(Button.Pressed, "#kill-btn")
     def on_kill(self) -> None:
         dt = self.query_one("#ptable", DataTable)
-        if dt.cursor_row is not None and self._pids:
-            pid = self._pids[dt.cursor_row]
+        if self._process_selection_lost:
+            self._status("Selected process exited; select a process before killing")
+            return
+        if dt.cursor_row is not None and 0 <= dt.cursor_row < len(self._processes):
+            pid, started = self._processes[dt.cursor_row]
             try:
-                os.kill(pid, signal.SIGTERM)
+                process = psutil.Process(pid)
+                if process.create_time() != started:
+                    self._status("Selected PID was reused; refresh and select the process again")
+                    return
+                # psutil rechecks PID reuse before delivering the signal.
+                process.terminate()
                 self._status(f"SIGTERM → PID {pid}")
             except Exception as e:
                 self._status(f"Kill failed: {e}")
         else:
             self._status("No process selected")
+
+    @on(DataTable.RowHighlighted, "#ptable")
+    @on(DataTable.RowSelected, "#ptable")
+    def on_process_highlighted(self) -> None:
+        self._process_selection_lost = False
 
     @on(Button.Pressed, "#drop-btn")
     def on_drop(self) -> None:
@@ -1087,12 +1099,16 @@ class GiveLaptopAC(App):
 
     def _tick_procs(self) -> None:
         dt = self.query_one("#ptable", DataTable)
+        selected = None
+        if not self._process_selection_lost and 0 <= dt.cursor_row < len(self._processes):
+            selected = self._processes[dt.cursor_row]
         procs = []
-        for p in psutil.process_iter(["pid", "name", "cpu_percent", "memory_percent", "memory_info"]):
+        for p in psutil.process_iter(["pid", "name", "cpu_percent", "memory_percent", "memory_info", "create_time"]):
             try:
                 info = p.info
                 mem_mb = info["memory_info"].rss / (1024**2) if info["memory_info"] else 0
-                procs.append((info["pid"], info["name"] or "?", info["cpu_percent"] or 0, info["memory_percent"] or 0, mem_mb))
+                if info["create_time"] is not None:
+                    procs.append((info["pid"], info["name"] or "?", info["cpu_percent"] or 0, info["memory_percent"] or 0, mem_mb, info["create_time"]))
             except Exception:
                 pass
 
@@ -1103,10 +1119,21 @@ class GiveLaptopAC(App):
         else:
             procs.sort(key=lambda x: (x[1] or "").lower())
 
-        self._pids = [p[0] for p in procs]
-        dt.clear()
-        for pid, name, cpu, mem, mem_mb in procs[:100]:
-            dt.add_row(str(pid), name[:30], f"{cpu:.1f}", f"{mem:.1f}", f"{mem_mb:.0f}")
+        visible = procs[:100]
+        # Keep the selected process visible even when its rank falls below 100.
+        if selected is not None and selected not in [(p[0], p[5]) for p in visible]:
+            match = next((p for p in procs if (p[0], p[5]) == selected), None)
+            if match is not None:
+                visible = visible[:99] + [match]
+        self._processes = [(p[0], p[5]) for p in visible]
+        with dt.prevent(DataTable.RowHighlighted):
+            dt.clear()
+            for pid, name, cpu, mem, mem_mb, started in visible:
+                dt.add_row(str(pid), name[:30], f"{cpu:.1f}", f"{mem:.1f}", f"{mem_mb:.0f}", key=f"{pid}:{started}")
+            if selected in self._processes:
+                dt.move_cursor(row=self._processes.index(selected))
+            elif selected is not None:
+                self._process_selection_lost = True
 
     # ─── key actions ───────────────────────────────────────────────────────────
     def action_toggle_details(self) -> None:

@@ -16,3 +16,24 @@ jobs:
           echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
       - name: Validate configuration and rollback
         run: ./tests/smoke.sh
+
+  laptop:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .local/share/underlight/give_laptop_ac
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dashboard and backend test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake pkg-config libsystemd-dev dbus
+          python3 -m venv .venv
+          .venv/bin/python -m pip install -r requirements.txt
+      - name: Build and test backend against simulated hardware
+        run: |
+          cmake -S msi-ec-daemon -B msi-ec-daemon/build -DCMAKE_BUILD_TYPE=Debug
+          cmake --build msi-ec-daemon/build --parallel 2
+          ctest --test-dir msi-ec-daemon/build --output-on-failure
+      - name: Test dashboard, telemetry, controls, and isolated D-Bus service
+        run: dbus-run-session -- env MSI_EC_TEST_BUS=1 .venv/bin/python -m unittest discover -s tests -v

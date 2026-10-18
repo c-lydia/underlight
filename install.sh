@@ -208,6 +208,8 @@ link_item .local/share/applications/underlight-android.desktop
 link_item .local/share/applications/underlight-terminal.desktop
 link_item .config/underlight/logo.svg
 link_item .config/underlight/widgets.css
+link_item .local/bin/underlight-obsidian
+link_item .local/share/underlight/obsidian
 link_item .local/share/underlight/give_laptop_ac
 link_item .local/bin/underlight-ai
 link_item .local/bin/underlight-background
