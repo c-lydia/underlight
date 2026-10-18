@@ -9,5 +9,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install RAG test dependencies
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install -r .local/share/underlight/rag_pipeline/requirements.txt
+          echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
       - name: Validate configuration and rollback
         run: ./tests/smoke.sh
