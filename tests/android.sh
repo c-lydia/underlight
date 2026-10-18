@@ -34,10 +34,11 @@ for shell in bash sh zsh; do
   env -u ANDROID_HOME -u ANDROID_SDK_ROOT -u ANDROID_STUDIO_HOME -u FLUTTER_ROOT \
     HOME="$test_root/empty" PATH=/usr/bin:/bin "$shell" -c 'set -eu; . "$1"' _ "$root/.config/underlight/android.sh"
 done
-output=$(env -u ANDROID_HOME -u ANDROID_STUDIO_HOME -u FLUTTER_ROOT HOME="$test_root/home" \
+output=$(env -u ANDROID_HOME -u ANDROID_SDK_ROOT -u ANDROID_STUDIO_HOME -u FLUTTER_ROOT HOME="$test_root/home" \
   PATH=/usr/bin:/bin XDG_CONFIG_HOME="$test_root/config" "$root/.local/bin/underlight-android" studio '/tmp/project with spaces')
 [[ $output == *'arg:/tmp/project with spaces'* ]]
-output=$(env -u ANDROID_HOME HOME="$test_root/home" PATH=/usr/bin:/bin XDG_CONFIG_HOME="$test_root/config" \
+output=$(env -u ANDROID_HOME -u ANDROID_SDK_ROOT -u ANDROID_STUDIO_HOME -u FLUTTER_ROOT \
+  HOME="$test_root/home" PATH=/usr/bin:/bin XDG_CONFIG_HOME="$test_root/config" \
   "$root/.local/bin/underlight-android" emulator test_avd -gpu software)
 [[ $output == *$'arg:-avd\narg:test_avd\narg:-gpu\narg:software'* ]]
 printf 'UNDERLIGHT_ANDROID_OK\n'
