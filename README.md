@@ -67,6 +67,49 @@ monitors, input, appearance, autostart, background applications, bindings, and
 window rules. `autostart.conf` launches Hyprpaper, Waybar, the widget process,
 Hypridle, and optional notification, network, and clipboard services.
 
+### Transparency
+
+Ubuntu and EndeavourOS use the same appearance files. The current defaults are:
+
+| Surface | Opacity | Configuration |
+| --- | --- | --- |
+| Focused app windows | 65% | `.config/hypr/underlight/looknfeel.conf`: `active_opacity` |
+| Unfocused app windows | 55% | `.config/hypr/underlight/looknfeel.conf`: `inactive_opacity` |
+| Fullscreen windows (compositor) | 100% | `.config/hypr/underlight/looknfeel.conf`: `fullscreen_opacity` |
+| Kitty background | 50% | `.config/kitty/kitty.conf`: `background_opacity` |
+| Wofi launcher background | 50% | `.config/wofi/style.css`: window `background-color` |
+| Mako notification background | About 55% | `.config/mako/config`: `background-color=#1a1b268c` |
+
+Lower opacity means more transparency. Hyprland applies its window opacity to
+the whole window, including text, for GNOME, Flatpak, and other apps in the
+Underlight Hyprland session. Kitty's background opacity combines with that
+compositor opacity, so its background appears more transparent than ordinary
+app windows. Fullscreen removes the compositor fade; an app's own background
+transparency can still remain. Blur stays enabled behind transparent surfaces.
+Waybar and desktop widgets have their own background styling.
+
+To apply updates on another Ubuntu or EndeavourOS desktop, run this from its
+Underlight repository checkout, inside the running Hyprland session:
+
+```bash
+git pull --ff-only
+hyprctl reload
+hyprctl configerrors
+```
+
+The installer links the appearance files to the checkout, so an existing
+installation does not need to rerun the installer for these changes. Reload
+running Kitty windows and Mako notifications with:
+
+```bash
+pkill -USR1 -x kitty
+makoctl reload
+```
+
+New Kitty windows also load the updated settings. Close and reopen Wofi to
+load its updated style. These settings apply in Hyprland; they do not configure
+a separate GNOME Shell or KDE Plasma session.
+
 ### Shell and status layer
 
 Waybar is the always-visible shell surface. Its native modules show workspaces,
