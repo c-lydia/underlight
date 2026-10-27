@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# Optional, version-pinned compositor glass. Never loads on an unmatched ABI.
+set -euo pipefail
+
+release=0.2.1
+commit=dd220efe7b1e292415bd0ea7161f63df9c95bfd3
+checksum=649617e19986457015d581743a4ad5ef82f1cb1929db6dce8043d33acedcf0b6
+data_root="${XDG_DATA_HOME:-$HOME/.local/share}/underlight/plugins/hyprglass-$release"
+state_root="${XDG_STATE_HOME:-$HOME/.local/state}/underlight-glass"
+config="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/underlight/glass-plugin.conf"
+binary="$data_root/hyprglass.so"
+mode=${1:-status}
+
+compatible() {
+    [[ $(uname -m) == x86_64 ]] && hyprctl version | grep -Fq "$commit"
+}
+
+verify() {
+    [[ -f $binary ]] && printf '%s  %s\n' "$checksum" "$binary" | sha256sum --check --status
+}
+
+loaded() {
+    hyprctl plugin list | grep -q '^Plugin hyprglass '
+}
+
+case "$mode" in
+    install)
+        compatible || { printf 'HyprGlass %s requires Hyprland 0.53.3 (x86_64).\n' "$release" >&2; exit 1; }
+        mkdir -p "$data_root"
+        if ! verify; then
+            download=$(mktemp "$data_root/download.XXXXXX")
+            trap 'rm -f -- "$download"' EXIT
+            curl --fail --location --silent --show-error \
+                "https://github.com/hyprnux/hyprglass/releases/download/v$release/hyprglass.so" --output "$download"
+            printf '%s  %s\n' "$checksum" "$download" | sha256sum --check --status
+            mv -- "$download" "$binary"
+        fi
+        printf 'Verified HyprGlass %s. Enable with: underlight-glass enable\n' "$release"
+        ;;
+    enable|restore)
+        if [[ $mode == restore && ! -f $state_root/enabled ]]; then exit 0; fi
+        compatible || { printf 'Glass skipped: this binary requires Hyprland 0.53.3.\n' >&2; exit 1; }
+        verify || { printf 'Glass missing or checksum differs. Run underlight-glass install.\n' >&2; exit 1; }
+        [[ -f $config ]] || { printf 'Missing glass configuration: %s\n' "$config" >&2; exit 1; }
+        mkdir -p "$state_root"
+        # Plugin initialization reloads Hyprland config. Avoid a recursive restore.
+        exec 9>"$state_root/restore.lock"
+        flock -n 9 || exit 0
+        if ! loaded; then
+            hyprctl plugin load "$binary"
+            loaded || { printf 'HyprGlass failed to load; startup remains disabled.\n' >&2; exit 1; }
+        fi
+        hyprctl keyword source "$config"
+        if [[ $mode == enable ]]; then touch "$state_root/enabled"; fi
+        ;;
+    disable)
+        if [[ -f $state_root/enabled ]]; then mv "$state_root/enabled" "$state_root/disabled"; fi
+        if loaded; then hyprctl plugin unload "$binary"; fi
+        hyprctl reload
+        ;;
+    status)
+        if loaded; then printf 'HyprGlass is loaded.\n'; else printf 'HyprGlass is not loaded.\n'; fi
+        if [[ -f $state_root/enabled ]]; then printf 'Automatic restore enabled.\n'; fi
+        ;;
+    *) printf 'Usage: underlight-glass {install|enable|disable|restore|status}\n' >&2; exit 2 ;;
+esac

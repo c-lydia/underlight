@@ -13,6 +13,7 @@ scripts=(
   "$root/.local/bin/underlight-doctor"
   "$root/.local/bin/underlight-gpu-check"
   "$root/.local/bin/underlight-gpu-menu"
+  "$root/.local/bin/underlight-glass"
   "$root/.local/bin/underlight-gpu-run"
   "$root/.local/bin/underlight-health-notify"
   "$root/.local/bin/underlight-install-extras"
@@ -30,6 +31,7 @@ bash "$root/tests/cuda.sh"
 bash "$root/tests/android.sh"
 python3 "$root/tests/test_terminal.py"
 python3 "$root/tests/test_obsidian.py"
+python3 "$root/tests/test_glass.py"
 for script in "${scripts[@]}"; do
   [[ -x $script ]] || { printf 'not executable: %s\n' "$script" >&2; exit 1; }
 done
@@ -58,6 +60,7 @@ HOME="$test_home" XDG_STATE_HOME="$test_state" \
 [[ -L $test_home/.local/bin/underlight-control ]]
 [[ -x $test_home/.local/bin/underlight-obsidian ]]
 [[ -L $test_home/.local/share/underlight/obsidian ]]
+[[ -L $test_home/.local/bin/underlight-glass ]]
 [[ -L $test_home/.local/bin/underlight-doctor ]]
 [[ -L $test_home/.config/nvim/after/plugin/underlight-transparent.lua ]]
 [[ -L $test_home/.config/nvim/after/plugin/underlight-persistence.lua ]]

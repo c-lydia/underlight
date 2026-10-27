@@ -1,11 +1,11 @@
 font=Ubuntu Sans 11
-background-color=#1a1b268c
+background-color=#1a20328c
 text-color=#c0caf5ff
-border-color=#7aa2f7cc
+border-color=#a5dcff99
 progress-color=over #414868aa
-border-size=2
-border-radius=12
-padding=14
+border-size=1
+border-radius=20
+padding=18
 margin=10
 width=360
 height=120

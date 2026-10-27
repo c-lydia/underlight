@@ -218,6 +218,7 @@ link_item .local/bin/underlight-control
 link_item .local/bin/underlight-doctor
 link_item .local/bin/underlight-gpu-check
 link_item .local/bin/underlight-gpu-menu
+link_item .local/bin/underlight-glass
 link_item .local/bin/underlight-gpu-run
 link_item .local/bin/underlight-health-notify
 link_item .local/bin/underlight-install-extras

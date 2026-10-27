@@ -77,18 +77,22 @@ monitors, input, appearance, autostart, background applications, bindings, and
 window rules. `autostart.conf` launches Hyprpaper, Waybar, the widget process,
 Hypridle, and optional notification, network, and clipboard services.
 
-### Transparency
+### Liquid glass and transparency
 
-Ubuntu and EndeavourOS use the same appearance files. The current defaults are:
+Ubuntu and EndeavourOS use the same liquid glass appearance: clear navy surfaces,
+cyan/violet reflective rims, rounded corners, soft shadows, and compositor blur.
+GTK shell surfaces use translucent gradients. The optional HyprGlass compositor
+plugin adds sampled-background refraction to application windows, including GNOME,
+Flatpak, Qt and Electron windows in Hyprland. The current defaults are:
 
 | Surface | Opacity | Configuration |
 | --- | --- | --- |
-| Focused app windows | 65% | `.config/hypr/underlight/looknfeel.conf`: `active_opacity` |
-| Unfocused app windows | 55% | `.config/hypr/underlight/looknfeel.conf`: `inactive_opacity` |
+| Focused app windows | 88% | `.config/hypr/underlight/looknfeel.conf`: `active_opacity` |
+| Unfocused app windows | 80% | `.config/hypr/underlight/looknfeel.conf`: `inactive_opacity` |
 | Fullscreen windows (compositor) | 100% | `.config/hypr/underlight/looknfeel.conf`: `fullscreen_opacity` |
-| Kitty background | 50% | `.config/kitty/kitty.conf`: `background_opacity` |
-| Wofi launcher background | 50% | `.config/wofi/style.css`: window `background-color` |
-| Mako notification background | About 55% | `.config/mako/config`: `background-color=#1a1b268c` |
+| Kitty background | 85% | `.config/kitty/kitty.conf`: `background_opacity` |
+| Wofi launcher background | 40–48% | `.config/wofi/style.css`: window gradient |
+| Mako notification background | About 55% | `.config/mako/config`: `background-color=#1a20328c` |
 
 Lower opacity means more transparency. Hyprland applies its window opacity to
 the whole window, including text, for GNOME, Flatpak, and other apps in the
@@ -114,11 +118,48 @@ running Kitty windows and Mako notifications with:
 ```bash
 pkill -USR1 -x kitty
 makoctl reload
+pkill -USR2 -x waybar
+underlight-widgets-toggle restart
 ```
 
 New Kitty windows also load the updated settings. Close and reopen Wofi to
 load its updated style. These settings apply in Hyprland; they do not configure
 a separate GNOME Shell or KDE Plasma session.
+
+### Refractive application glass
+
+`underlight-glass` installs and checks the pinned **HyprGlass v0.2.1** binary for
+**Hyprland 0.53.3 on x86_64**. It verifies the release checksum and running
+compositor commit before loading; it does not upgrade Hyprland or change Flatpak
+permissions. On other versions, it refuses to load and leaves the normal blur
+configuration available.
+
+```bash
+underlight-glass install
+underlight-glass enable
+underlight-glass status
+# Return to native blur:
+underlight-glass disable
+```
+
+Enabled glass is restored at login and config reload. Its settings live in
+`.config/hypr/underlight/glass-plugin.conf`, loaded only after the plugin succeeds.
+The binary lives in `~/.local/share/underlight/plugins/hyprglass-0.2.1/`; the enable
+marker is under `~/.local/state/underlight-glass/`. Neither is bundled into Git.
+
+The current material keeps the center still, uses a narrow refractive edge with
+no chromatic splitting, and retains the original two-pixel blue/violet focus
+border. Native blur is reduced while the plugin is active because heavy native
+blur hides the refraction. This release affects application windows; the bar,
+launcher, notifications, and desktop widgets retain their translucent GTK styles.
+App toolbars and individual controls are not separate compositor glass objects.
+Fullscreen apps retain full opacity. This config applies to apps running under
+Hyprland, not to a separate GNOME Shell session.
+
+Source and compatibility: [HyprGlass v0.2.1](https://github.com/hyprnux/hyprglass/releases/tag/v0.2.1).
+Release SHA-256: `649617e19986457015d581743a4ad5ef82f1cb1929db6dce8043d33acedcf0b6`.
+Upstream's v0.2.1 binary reports `1.0.0` in `hyprctl plugin list`; the checksum
+and release pin identify the installed artifact.
 
 ### Shell and status layer
 

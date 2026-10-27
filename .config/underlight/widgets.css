@@ -9,49 +9,23 @@ window#underlight-widget {
 
 .panel {
   padding: 18px 19px 17px;
-  background:
-    radial-gradient(ellipse at top left, rgba(72, 202, 228, 0.11) 0%, transparent 48%),
-    radial-gradient(ellipse at bottom right, rgba(224, 82, 160, 0.08) 0%, transparent 52%),
-    linear-gradient(145deg, rgba(36, 40, 59, 0.28) 0%, rgba(20, 23, 37, 0.16) 100%);
-  border: 1px solid;
-  border-top-color: rgba(72, 202, 228, 0.82);
-  border-right-color: rgba(124, 77, 255, 0.68);
-  border-bottom-color: rgba(224, 82, 160, 0.72);
-  border-left-color: rgba(72, 202, 228, 0.68);
-  border-radius: 22px;
-  color: #a9b1d6;
-  box-shadow:
-    0 18px 52px rgba(5, 6, 12, 0.20),
-    0 6px 18px rgba(5, 6, 12, 0.12),
-    -5px -4px 20px rgba(72, 202, 228, 0.10),
-    6px 7px 24px rgba(224, 82, 160, 0.08),
-    0 0 28px rgba(124, 77, 255, 0.08),
-    inset 0 1px 0 rgba(192, 202, 245, 0.10),
-    inset 0 -1px 0 rgba(5, 6, 12, 0.14),
-    inset 0 0 42px rgba(72, 202, 228, 0.025);
-  text-shadow: 0 2px 4px rgba(5, 6, 12, 0.90);
-  transition: box-shadow 0.4s ease, border-color 0.4s ease, background 0.4s ease;
+  background: linear-gradient(145deg, rgba(65, 82, 108, 0.28), rgba(26, 32, 50, 0.16) 55%, rgba(45, 32, 61, 0.22));
+  border: 1px solid rgba(165, 220, 255, 0.38);
+  border-top-color: rgba(225, 244, 255, 0.65);
+  border-bottom-color: rgba(187, 154, 247, 0.30);
+  border-radius: 24px;
+  color: #c0caf5;
+  box-shadow: 0 12px 32px rgba(5, 6, 12, 0.24),
+    inset 0 1px rgba(225, 244, 255, 0.16),
+    inset 0 -1px rgba(187, 154, 247, 0.08);
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
 }
 
 .panel:hover {
-  background:
-    radial-gradient(ellipse at top left, rgba(72, 202, 228, 0.16) 0%, transparent 50%),
-    radial-gradient(ellipse at bottom right, rgba(224, 82, 160, 0.13) 0%, transparent 54%),
-    linear-gradient(145deg, rgba(36, 40, 59, 0.34) 0%, rgba(20, 23, 37, 0.20) 100%);
-  border-top-color: #8be9fd;
-  border-right-color: #9d7cff;
-  border-bottom-color: #f071b5;
-  border-left-color: #48cae4;
-  box-shadow:
-    0 24px 64px rgba(5, 6, 12, 0.22),
-    0 12px 32px rgba(5, 6, 12, 0.15),
-    -7px -6px 26px rgba(72, 202, 228, 0.28),
-    8px 9px 30px rgba(224, 82, 160, 0.22),
-    0 0 38px rgba(124, 77, 255, 0.20),
-    inset 0 1px 0 rgba(192, 202, 245, 0.10),
-    inset 0 -1px 0 rgba(5, 6, 12, 0.12),
-    0 0 48px rgba(72, 202, 228, 0.18),
-    0 0 80px rgba(224, 82, 160, 0.08);
+  border-top-color: rgba(225, 244, 255, 0.85);
+  border-left-color: rgba(125, 207, 255, 0.65);
+  box-shadow: 0 16px 38px rgba(5, 6, 12, 0.28),
+    inset 0 1px rgba(225, 244, 255, 0.24);
 }
 
 .date-panel {
@@ -109,7 +83,7 @@ window#underlight-widget {
 
 .date {
   margin-top: -3px;
-  color: #737da6;
+  color: #a4aecf;
   font-size: 12px;
 }
 
@@ -117,7 +91,7 @@ window#underlight-widget {
 .calendar-day {
   min-width: 26px;
   min-height: 20px;
-  color: #737da6;
+  color: #a4aecf;
   font-family: "Ubuntu Sans Mono", "Noto Sans Mono", monospace;
   font-size: 9px;
   border-radius: 6px;
@@ -162,7 +136,7 @@ window#underlight-widget {
 }
 
 .media-artist {
-  color: #737da6;
+  color: #a4aecf;
   font-size: 10px;
   transition: color 0.3s ease;
 }
@@ -214,7 +188,7 @@ window#underlight-widget {
 
 .meter-name,
 .path-hint {
-  color: #737da6;
+  color: #a4aecf;
   font-size: 9px;
   font-weight: 600;
   letter-spacing: 0.6px;
@@ -276,7 +250,7 @@ progressbar progress {
 .drive-detail,
 .empty,
 .status {
-  color: #737da6;
+  color: #a4aecf;
   font-size: 10px;
 }
 

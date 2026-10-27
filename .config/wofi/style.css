@@ -1,9 +1,10 @@
 window {
   margin: 0;
-  border: 1px solid rgba(122, 162, 247, 0.52);
-  border-radius: 14px;
-  background-color: rgba(26, 27, 38, 0.50);
-  box-shadow: 0 18px 48px rgba(5, 6, 12, 0.42);
+  border: 1px solid rgba(165, 220, 255, 0.42);
+  border-top-color: rgba(225, 244, 255, 0.65);
+  border-radius: 24px;
+  background: linear-gradient(135deg, rgba(58, 73, 98, 0.48), rgba(26, 32, 50, 0.40) 55%, rgba(44, 31, 59, 0.44));
+  box-shadow: 0 18px 48px rgba(5, 6, 12, 0.32), inset 0 1px rgba(225, 244, 255, 0.12);
   color: #c0caf5;
   font-family: "Ubuntu Sans", "Noto Sans", sans-serif;
   font-size: 15px;
@@ -17,7 +18,7 @@ window {
   margin-bottom: 10px;
   padding: 10px 12px;
   border: 1px solid rgba(125, 207, 255, 0.24);
-  border-radius: 8px;
+  border-radius: 14px;
   background: rgba(4, 5, 12, 0.44);
   color: #c0caf5;
   box-shadow: none;
@@ -29,12 +30,13 @@ window {
 
 #entry {
   padding: 8px 10px;
-  border-radius: 7px;
+  border-radius: 12px;
   background: transparent;
 }
 
 #entry:selected {
-  background: rgba(122, 162, 247, 0.20);
+  background: linear-gradient(110deg, rgba(125, 207, 255, 0.24), rgba(187, 154, 247, 0.16));
+  box-shadow: inset 0 1px rgba(225, 244, 255, 0.18);
   color: #c0caf5;
 }
 
