@@ -77,6 +77,17 @@ monitors, input, appearance, autostart, background applications, bindings, and
 window rules. `autostart.conf` launches Hyprpaper, Waybar, the widget process,
 Hypridle, and optional notification, network, and clipboard services.
 
+Hyprpaper runs under `underlight-wallpaper.service`, which restarts it after an
+unexpected exit and records its output in the user journal. Hyprland imports
+the current Wayland environment before starting the service at login and on
+configuration reload. This also works for direct logins that do not activate
+`graphical-session.target`; retries stop when the Wayland socket disappears.
+The existing `~/.config/hypr/hyprpaper.conf` still selects the wallpaper.
+After updating an existing installation, run `./install.sh` to link the new
+unit, then `systemctl --user daemon-reload` and `hyprctl reload`.
+Inspect wallpaper logs with
+`journalctl --user -u underlight-wallpaper.service -b`.
+
 ### Liquid glass and transparency
 
 Ubuntu and EndeavourOS use the same liquid glass appearance: clear navy surfaces,

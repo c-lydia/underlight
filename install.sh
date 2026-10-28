@@ -195,6 +195,7 @@ link_item .config/nvim/after/plugin/underlight-persistence.lua
 link_item .config/nvim/after/plugin/underlight-rag.lua
 link_item .config/kitty/kitty.conf
 link_item .config/hypr/underlight
+link_item .config/systemd/user/underlight-wallpaper.service
 link_item .config/waybar/config.jsonc
 link_item .config/waybar/style.css
 link_item .config/wofi/config
