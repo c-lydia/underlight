@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Keep Obsidian on the host's Hermes install, credentials, and tools.
+set -euo pipefail
+config="$PWD/.obsidian/underlight-rag.yaml"
+if [[ -f /.flatpak-info ]]; then
+  if [[ -f $config ]]; then
+    exec flatpak-spawn --host --directory="$PWD" env RAG_CONFIG="$config" "$HOME/.local/bin/hermes" "$@"
+  fi
+  exec flatpak-spawn --host --directory="$PWD" "$HOME/.local/bin/hermes" "$@"
+fi
+if [[ -f $config ]]; then export RAG_CONFIG="$config"; fi
+exec "$HOME/.local/bin/hermes" "$@"

@@ -69,9 +69,10 @@ class Embedder:
         base = self.settings.get("ollama_base_url", self.config["ollama"]["base_url"])
         model = self.settings["model"]
         timeout = int(self.config["ollama"].get("timeout_s", 120))
+        options = self.settings.get("ollama_options", {})
         response = requests.post(
             f"{base.rstrip('/')}/api/embed",
-            json={"model": model, "input": texts},
+            json={"model": model, "input": texts, "options": options},
             timeout=timeout,
         )
         if response.status_code != 404:
@@ -84,7 +85,7 @@ class Embedder:
         for text in texts:
             fallback = requests.post(
                 f"{base.rstrip('/')}/api/embeddings",
-                json={"model": model, "prompt": text},
+                json={"model": model, "prompt": text, "options": options},
                 timeout=timeout,
             )
             fallback.raise_for_status()

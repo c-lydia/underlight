@@ -4,7 +4,7 @@ set -euo pipefail
 
 usage() {
   printf '%s\n' \
-    'Usage: underlight-ai menu|status|opencode|zen|hermes|ollama|rag [DIRECTORY|MODEL]' \
+    'Usage: underlight-ai menu|status|opencode|zen|hermes|copilot|cursor|antigravity|ollama|rag [DIRECTORY|MODEL]' \
     '' \
     'Launch the existing Ollama, OpenCode, and Hermes setup from Underlight.'
 }
@@ -57,6 +57,9 @@ menu() {
     'OpenCode' \
     'OpenCode Zen (free)' \
     'Hermes' \
+    'GitHub Copilot' \
+    'Cursor' \
+    'Google Antigravity' \
     'Ollama model' \
     'Local RAG' \
     'AI stack status' \
@@ -67,6 +70,9 @@ menu() {
     OpenCode) exec "$0" opencode ;;
     'OpenCode Zen (free)') exec "$0" zen ;;
     Hermes) exec "$0" hermes ;;
+    'GitHub Copilot') exec "$0" copilot ;;
+    Cursor) exec "$0" cursor ;;
+    'Google Antigravity') exec "$0" antigravity ;;
     'Ollama model') exec "$0" ollama ;;
     'Local RAG') exec underlight-rag menu ;;
     'AI stack status') terminal underlight-ai-status 'AI stack status' "$HOME" sh -lc 'underlight-ai status; printf "\nPress Enter to close..."; read -r _' ;;
@@ -81,9 +87,25 @@ case $command in
   -h|--help) usage ;;
   menu) menu ;;
   status) status ;;
+  copilot|cursor|antigravity)
+    directory=${1:-$PWD}
+    [[ -d $directory ]] || { printf 'underlight-ai: not a directory: %s\n' "$directory" >&2; exit 2; }
+    case $command in
+      copilot) binary=copilot; title='GitHub Copilot' ;;
+      cursor) binary=cursor-agent; title='Cursor Agent' ;;
+      antigravity) binary=agy; title='Google Antigravity' ;;
+    esac
+    command -v "$binary" >/dev/null 2>&1 || { printf 'underlight-ai: %s is not installed\n' "$binary" >&2; exit 1; }
+    terminal "underlight-$command" "$title" "$directory" "$binary"
+    ;;
   opencode)
     directory=${1:-$PWD}
     [[ -d $directory ]] || { printf 'underlight-ai: not a directory: %s\n' "$directory" >&2; exit 2; }
+    if [[ -x $HOME/.local/share/underlight/opencode-student/bin/opencode && -f $directory/.obsidian/underlight-opencode.json ]]; then
+      terminal io.github.chhenglydia.OpenCode OpenCode "$directory" env \
+        OPENCODE_CONFIG="$directory/.obsidian/underlight-opencode.json" \
+        underlight-obsidian-opencode --standalone "$directory"
+    fi
     command -v opencode >/dev/null 2>&1 || { printf 'underlight-ai: opencode is not installed\n' >&2; exit 1; }
     underlight-profile ai >/dev/null
     terminal io.github.chhenglydia.OpenCode OpenCode "$directory" opencode "$directory"

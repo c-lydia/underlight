@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
+from unittest.mock import patch, Mock
 from pathlib import Path
 
 from config_loader import load_config
@@ -16,6 +17,17 @@ except ImportError:
 
 
 class RagPipelineTests(unittest.TestCase):
+    def test_ollama_embedding_options_apply_to_batch_and_legacy_endpoint(self):
+        embedder = Embedder({"embedder": {"model": "test", "device": "ollama",
+            "ollama_options": {"num_gpu": 0}}, "ollama": {"base_url": "http://localhost:11434"}})
+        missing = Mock(status_code=404)
+        success = Mock(status_code=200)
+        success.json.return_value = {"embedding": [0.1, 0.2]}
+        with patch("requests.post", side_effect=[missing, success]) as post:
+            self.assertEqual(embedder.embed(["note"]), [[0.1, 0.2]])
+            for call in post.call_args_list:
+                self.assertEqual(call.kwargs["json"]["options"], {"num_gpu": 0})
+
     def test_config_expands_home_and_environment(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "rag.yaml"

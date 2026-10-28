@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Run the existing host RAG environment from native or Flatpak Obsidian.
+set -euo pipefail
+if [[ $# != 1 || ! -f $1 ]]; then
+  printf 'Usage: underlight-obsidian-rag /absolute/path/to/rag.yaml\n' >&2
+  exit 2
+fi
+if [[ -f /.flatpak-info ]]; then
+  exec flatpak-spawn --host env RAG_CONFIG="$1" "$HOME/.local/bin/underlight-rag" mcp
+fi
+export RAG_CONFIG="$1"
+# Native OpenCode isolates its own XDG directories. RAG uses the host install.
+for name in CONFIG DATA STATE CACHE; do
+  saved="UNDERLIGHT_HOST_XDG_${name}_HOME"
+  if [[ -n ${!saved:-} ]]; then export "XDG_${name}_HOME=${!saved}"; fi
+done
+exec "$HOME/.local/bin/underlight-rag" mcp

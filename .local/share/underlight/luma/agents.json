@@ -1,0 +1,9 @@
+[
+  {"id":"opencode","name":"OpenCode","detail":"Zen and your connected models","command":"opencode"},
+  {"id":"copilot","name":"GitHub Copilot","detail":"Your GitHub account","command":"copilot","agent":"github-copilot-cli"},
+  {"id":"hermes","name":"Hermes","detail":"Your host provider and tools","command":"hermes","agent":"hermes-agent"},
+  {"id":"cursor","name":"Cursor","detail":"Your Cursor account","command":"cursor","agent":"underlight-cursor"},
+  {"id":"antigravity","name":"Antigravity","detail":"Your Google account","command":"antigravity","agent":"underlight-antigravity"},
+  {"id":"qwen","name":"Qwen · local GPU","detail":"On your laptop","command":"ollama","model":"ollama/qwen3:4b"},
+  {"id":"rag","name":"Ask my notes","detail":"Local retrieval and Qwen","command":"rag"}
+]

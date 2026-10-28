@@ -7,8 +7,10 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
+import uuid
 
 
 ASSETS = Path(__file__).resolve().parents[1] / "share/underlight/obsidian"
@@ -45,6 +47,138 @@ def atomic_write(path, data):
     finally:
         if os.path.exists(name):
             os.unlink(name)
+
+
+def apply_ai(vault, node_path, rag_config, model, cpu_embeddings=False,
+             enable_models=(), opencode_path=None, gpu_qwen=False):
+    """Configure installed Copilot V4/OpenCode 2 plugins without copying credentials."""
+    import yaml
+
+    vault = vault.expanduser().resolve()
+    if not (vault / ".obsidian").is_dir():
+        raise ValueError(f"Not an existing Obsidian vault: {vault}")
+    node_path = node_path.expanduser().absolute()
+    if not node_path.is_file() or not os.access(node_path, os.X_OK):
+        raise ValueError(f"Node executable not found: {node_path}")
+    bridge = Path(__file__).resolve().with_name("underlight-obsidian-rag")
+    if not bridge.is_file() or not os.access(bridge, os.X_OK):
+        raise ValueError(f"RAG bridge not installed: {bridge}")
+
+    changes = {}
+    def read(relative):
+        value = json.loads(safe_path(vault, relative).read_text())
+        if not isinstance(value, dict):
+            raise ValueError(f"Expected a JSON object: {relative}")
+        return value
+
+    copilot_path = ".obsidian/plugins/copilot/data.json"
+    github_path = ".obsidian/plugins/github-copilot/data.json"
+    manifest = read(".obsidian/plugins/copilot/manifest.json")
+    if not manifest.get("version", "").startswith("4."):
+        raise ValueError("AI setup requires Copilot for Obsidian V4 with OpenCode 2")
+    copilot = read(copilot_path)
+    github = read(github_path)
+    github["nodePath"] = str(node_path)
+    github["useDeviceSpecificSettings"] = False
+    changes[github_path] = encode(github)
+
+    config_path = vault / ".obsidian/underlight-opencode.json"
+    agent = copilot.setdefault("agentMode", {})
+    agent["activeBackend"] = "opencode"
+    backend = agent.setdefault("backends", {}).setdefault("opencode", {})
+    # The plugin stores machine-specific launch options in device profiles.
+    profiles = [p["opencode"] for p in agent.get("deviceProfiles", {}).values()
+                if isinstance(p, dict) and isinstance(p.get("opencode"), dict)
+                and Path(p["opencode"].get("binaryPath", "")).is_file()]
+    if not profiles and not Path(backend.get("binaryPath", "")).is_file():
+        raise ValueError("Install OpenCode from Copilot's Agent settings first")
+    for settings in [backend, *profiles]:
+        env = settings.setdefault("envOverrides", {})
+        existing = env.get("OPENCODE_CONFIG")
+        if existing and existing != str(config_path):
+            raise ValueError(f"Preserving existing OPENCODE_CONFIG: {existing}")
+        env["OPENCODE_CONFIG"] = str(config_path)
+    if opencode_path:
+        executable = opencode_path.expanduser().absolute()
+        result = subprocess.run([str(executable), "--version"], check=True,
+                                capture_output=True, text=True, timeout=10)
+        version = result.stdout.strip().removeprefix("opencode v")
+        if not version.startswith("2."):
+            raise ValueError("Copilot V4 requires an OpenCode 2 executable")
+        for settings in [backend, *profiles]:
+            settings.update(binaryPath=str(executable), binaryVersion=version, binarySource="custom")
+    if model:
+        backend["defaultModel"] = {"baseModelId": model, "effort": None}
+    selected_models = list(dict.fromkeys([*([model] if model else []), *enable_models]))
+    if gpu_qwen and "ollama/qwen3:4b" not in selected_models:
+        selected_models.append("ollama/qwen3:4b")
+    if selected_models:
+        providers = copilot.setdefault("providers", {})
+        provider_id = next((key for key, value in providers.items()
+                            if value.get("origin") == {"kind": "agent", "agentType": "opencode"}), None)
+        if provider_id is None:
+            raise ValueError("Add the OpenCode provider in Copilot's Models settings first")
+        models = copilot.setdefault("configuredModels", [])
+        enabled = copilot.setdefault("backends", {}).setdefault("opencode", {}).setdefault("enabledModels", [])
+        for selected in selected_models:
+            if "/" not in selected:
+                raise ValueError("Model IDs must have the form provider/model")
+            entry = next((m for m in models if m.get("providerId") == provider_id
+                          and m.get("info", {}).get("id") == selected), None)
+            if entry is None:
+                entry = {"providerId": provider_id, "info": {"id": selected, "displayName": selected},
+                         "configuredModelId": str(uuid.uuid4()),
+                         "configuredAt": int(datetime.now().timestamp() * 1000)}
+                models.append(entry)
+            if entry["configuredModelId"] not in enabled:
+                enabled.append(entry["configuredModelId"])
+    changes[copilot_path] = encode(copilot)
+
+    cfg = yaml.safe_load(rag_config.expanduser().read_text())
+    if not isinstance(cfg, dict) or any(k not in cfg for k in
+            ("store", "home", "assistant", "embedder", "ollama", "chat", "chunking")):
+        raise ValueError("Run underlight-rag setup before configuring Obsidian AI")
+    # Give this vault its own table, preserving the existing project/home indices.
+    table = "idx_obsidian_" + digest(str(vault).encode())[:12]
+    cfg["home"] = {"root": str(vault), "include": ["*"],
+                   "exclude": [".obsidian", ".git", ".trash", "copilot", "node_modules"],
+                   "extensions": [".md", ".txt"], "ocr": {"enabled": False}}
+    cfg["store"]["tables"]["home"] = table
+    cfg["assistant"]["search_tables"] = ["home", "projects"]
+    if cpu_embeddings:
+        cfg["embedder"].setdefault("ollama_options", {}).update(num_gpu=0, num_thread=4)
+    if gpu_qwen:
+        cfg["ollama"].update(model="qwen3:4b", timeout_s=300, think=True, keep_alive="15m")
+        cfg["ollama"].setdefault("options", {}).update(
+            num_gpu=99, num_thread=4, num_batch=128, num_predict=4096)
+    rag_relative = ".obsidian/underlight-rag.yaml"
+    changes[rag_relative] = yaml.safe_dump(cfg, sort_keys=False).encode()
+    relative = ".obsidian/underlight-opencode.json"
+    oc = read(relative) if safe_path(vault, relative).exists() else {}
+    oc.setdefault("mcp", {}).setdefault("servers", {})["underlight_rag"] = {
+        "type": "local", "command": [str(bridge), str(vault / rag_relative)]}
+    for selected in selected_models:
+        provider, separator, model_id = selected.partition("/")
+        if not separator or not model_id:
+            raise ValueError("Model IDs must have the form provider/model")
+        # Native provider discovery is asynchronous. Keep enabled models in
+        # the first catalogue so Copilot does not delete its enabled-model ID.
+        # Empty overrides preserve native Auto routing and live metadata.
+        oc.setdefault("providers", {}).setdefault(provider, {}).setdefault("models", {}).setdefault(model_id, {})
+    local_models = [m.split("/", 1)[1] for m in selected_models if m.startswith("ollama/")]
+    if local_models:
+        local = oc.setdefault("providers", {}).setdefault("ollama", {})
+        local.setdefault("package", "@opencode/ai/providers/openai-compatible")
+        local.setdefault("name", "Local Ollama")
+        local.setdefault("settings", {}).setdefault("baseURL", cfg["ollama"]["base_url"].rstrip("/") + "/v1")
+        for local_model in local_models:
+            local.setdefault("models", {}).setdefault(local_model, {})
+        if gpu_qwen:
+            qwen = local["models"]["qwen3:4b"]
+            qwen.setdefault("limit", {}).update(context=6144, output=2048)
+    changes[relative] = encode(oc)
+    write_changes(vault, changes)
+    print("AI configured. Index notes with RAG_CONFIG=<vault>/.obsidian/underlight-rag.yaml underlight-rag index --table home")
 
 
 def apply(vault):
@@ -113,6 +247,130 @@ def apply(vault):
             if not safe_path(vault, relative).exists():
                 changes[relative] = source.read_bytes()
 
+    folders = json.loads((ASSETS / "folders.json").read_text())
+    write_changes(vault, changes, folders)
+
+
+def repair_notebooklm(vault):
+    vault = vault.expanduser().resolve()
+    relative = '.obsidian/plugins/star-notebooklm/main.js'
+    manifest = json.loads(safe_path(vault, '.obsidian/plugins/star-notebooklm/manifest.json').read_text())
+    if manifest.get('version') != '1.2.4':
+        raise ValueError('This repair is only verified for Star NotebookLM 1.2.4')
+    source = safe_path(vault, relative).read_text()
+    marker = '      this.webview.addEventListener("dom-ready", () => {'
+    guard = (ASSETS / 'notebooklm-load-guard.js').read_text()
+    if guard not in source:
+        if source.count(marker) != 1:
+            raise ValueError('NotebookLM bundle differs from the verified release')
+        old_guard = '      // Underlight: expose failed navigations instead of leaving a blank webview.'
+        if old_guard in source:
+            start, end = source.index(old_guard), source.index(marker)
+            if start >= end:
+                raise ValueError('NotebookLM load guard has unexpected placement')
+            source = source[:start] + source[end:]
+        source = source.replace(marker, guard + marker)
+    source = source.replace('https://notebooklm.google.com', 'https://notebook.google.com')
+    write_changes(vault, {relative: source.encode()})
+
+
+def apply_luma(vault):
+    vault = vault.expanduser().resolve()
+    if not (vault / '.obsidian').is_dir():
+        raise ValueError('Choose an existing Obsidian vault')
+    changes = {}
+    for name in ('manifest.json', 'main.js', 'styles.css'):
+        changes['.obsidian/plugins/underlight-luma/' + name] = (ASSETS / 'luma-plugin' / name).read_bytes()
+    plugins = json.loads(safe_path(vault, '.obsidian/community-plugins.json').read_text())
+    if 'underlight-luma' not in plugins:
+        plugins.append('underlight-luma')
+    changes['.obsidian/community-plugins.json'] = encode(plugins)
+    write_changes(vault, changes)
+
+
+def repair_copilot_view(vault):
+    """Guard optional historical context in Copilot 4.0.15's relevant-notes hook."""
+    vault = vault.expanduser().resolve()
+    relative = ".obsidian/plugins/copilot/main.js"
+    manifest = json.loads(safe_path(vault, ".obsidian/plugins/copilot/manifest.json").read_text())
+    if manifest.get("version") != "4.0.15":
+        raise ValueError("This repair is only verified for Copilot 4.0.15")
+    source = safe_path(vault, relative).read_text()
+    replacements = {
+        "...h.flatMap(x=>x.notes),": "...h.flatMap(x=>x.notes??[]),",
+        "g.map(x=>Ise(t,x.path))": 'g.filter(x=>x&&typeof x.path==="string").map(x=>Ise(t,x.path))',
+        "x+C.urls.length+(C.webTabs?.length??0)": "x+(C.urls?.length??0)+(C.webTabs?.length??0)",
+    }
+    for before, after in replacements.items():
+        if source.count(after) == 1 and before not in source:
+            continue
+        if source.count(before) != 1:
+            raise ValueError("Copilot bundle differs from the verified release; repair not applied")
+        source = source.replace(before, after)
+    write_changes(vault, {relative: source.encode()})
+
+
+def apply_agent_clients(vault, hermes=False, copilot_cli=False, cursor=False, antigravity=False):
+    """Connect Agent Client to existing host installations and their sign-ins."""
+    vault = vault.expanduser().resolve()
+    relative = ".obsidian/plugins/agent-client"
+    manifest = json.loads(safe_path(vault, relative + "/manifest.json").read_text())
+    if manifest.get("id") != "agent-client":
+        raise ValueError("Install the Agent Client community plugin first")
+    path = safe_path(vault, relative + "/data.json")
+    settings = json.loads(path.read_text()) if path.exists() else {}
+    changes = {}
+    for enabled, name in [(hermes, "hermes"), (copilot_cli, "copilot"),
+                          (cursor, "cursor"), (antigravity, "antigravity")]:
+        if not enabled:
+            continue
+        bridge = Path(__file__).resolve().with_name("underlight-obsidian-" + name)
+        if not bridge.is_file() or not os.access(bridge, os.X_OK):
+            raise ValueError(f"Agent bridge not installed: {bridge}")
+        if name == "hermes":
+            settings.setdefault("presetAgents", {}).setdefault("hermes-agent", {}).update(
+                id="hermes-agent", displayName="Hermes", command=str(bridge),
+                args=["acp"], enabled=True)
+            settings["defaultAgentId"] = "hermes-agent"
+        elif name == "copilot":
+            agents = settings.setdefault("customAgents", [])
+            entry = next((a for a in agents if a.get("id") == "github-copilot-cli"), None)
+            if entry is None:
+                entry = {"id": "github-copilot-cli", "env": []}
+                agents.append(entry)
+            entry.update(displayName="GitHub Copilot", command=str(bridge),
+                         args=["--acp", "--stdio"], enabled=True)
+            rag = vault / ".obsidian/underlight-rag.yaml"
+            if rag.is_file():
+                mcp_path = ".obsidian/underlight-copilot-mcp.json"
+                mcp = {"mcpServers": {"underlight_rag": {
+                    "type": "local", "command": str(bridge.with_name("underlight-obsidian-rag")),
+                    "args": [str(rag)], "tools": ["*"]}}}
+                changes[mcp_path] = encode(mcp)
+                entry["args"].extend(["--additional-mcp-config", "@" + str(vault / mcp_path)])
+            settings["defaultAgentId"] = "github-copilot-cli"
+        else:
+            agent_id = "underlight-" + name
+            agents = settings.setdefault("customAgents", [])
+            entry = next((a for a in agents if a.get("id") == agent_id), None)
+            if entry is None:
+                entry = {"id": agent_id, "env": []}
+                agents.append(entry)
+            entry.update(displayName="Cursor" if name == "cursor" else "Google Antigravity",
+                         command=str(bridge), args=["acp"] if name == "cursor" else [],
+                         enabled=True)
+    settings.setdefault("autoAllowPermissions", False)
+    settings.setdefault("autoMentionActiveNote", False)
+    plugins_path = safe_path(vault, ".obsidian/community-plugins.json")
+    plugins = json.loads(plugins_path.read_text())
+    if "agent-client" not in plugins:
+        plugins.append("agent-client")
+    changes.update({relative + "/data.json": encode(settings),
+                    ".obsidian/community-plugins.json": encode(plugins)})
+    write_changes(vault, changes)
+
+
+def write_changes(vault, changes, folders=()):
     # Validate every destination before changing any of them.
     originals = {}
     for relative in list(changes):
@@ -122,7 +380,6 @@ def apply(vault):
             del changes[relative]
         else:
             originals[relative] = original
-    folders = json.loads((ASSETS / "folders.json").read_text())
     for folder in folders:
         path = safe_path(vault, folder)
         if path.exists() and not path.is_dir():
@@ -180,12 +437,50 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("vault", nargs="?", type=Path, help="existing vault directory")
     parser.add_argument("--restore", type=Path, metavar="BACKUP", help="undo an apply, preserving later edits")
+    parser.add_argument("--ai", action="store_true", help="configure installed Copilot V4/OpenCode 2 and RAG only")
+    parser.add_argument("--hermes", action="store_true", help="connect installed Agent Client to host Hermes")
+    parser.add_argument("--copilot-cli", action="store_true", help="connect Agent Client directly to host GitHub Copilot CLI")
+    parser.add_argument("--cursor", action="store_true", help="connect Agent Client to host Cursor CLI")
+    parser.add_argument("--antigravity", action="store_true", help="connect Agent Client to Google's official ACP runtime")
+    parser.add_argument("--repair-copilot-view", action="store_true", help="repair missing-context rendering in Copilot 4.0.15")
+    parser.add_argument("--luma", action="store_true", help="install the shared Underlight Luma companion")
+    parser.add_argument("--repair-notebooklm", action="store_true", help="update Star NotebookLM 1.2.4 links and load errors")
+    parser.add_argument("--gpu-qwen", action="store_true", help="configure Qwen 4B GPU inference and longer cold-load timeout")
+    parser.add_argument("--node-path", type=Path, help="Node 22+ executable visible inside Obsidian")
+    parser.add_argument("--rag-config", type=Path, default=Path.home() / ".config/underlight/rag.yaml")
+    parser.add_argument("--model", help="authenticated OpenCode model ID to enable and use by default")
+    parser.add_argument("--cpu-embeddings", action="store_true", help="run this vault's Ollama embeddings on CPU")
+    parser.add_argument("--enable-model", action="append", default=[], help="also show this available model in the picker (repeatable)")
+    parser.add_argument("--opencode-path", type=Path, help="use a custom OpenCode 2 executable")
     args = parser.parse_args()
     if bool(args.vault) == bool(args.restore):
         parser.error("provide a vault path OR --restore BACKUP")
+    if args.ai and (args.restore or not args.node_path):
+        parser.error("--ai requires a vault and --node-path")
+    agent_setup = args.hermes or args.copilot_cli or args.cursor or args.antigravity
+    if args.repair_notebooklm and (args.restore or args.ai or agent_setup or args.luma or args.repair_copilot_view):
+        parser.error('--repair-notebooklm requires a vault and must be used separately')
+    if args.luma and (args.restore or args.ai or agent_setup or args.repair_copilot_view):
+        parser.error('--luma requires a vault and must be used separately')
+    if args.repair_copilot_view and (args.restore or args.ai or agent_setup):
+        parser.error("--repair-copilot-view requires a vault and must be used separately")
+    if agent_setup and (args.restore or args.ai):
+        parser.error("Agent Client setup requires a vault and cannot be combined with --ai or --restore")
     try:
-        restore(args.restore) if args.restore else apply(args.vault)
-    except (OSError, ValueError, TypeError, KeyError) as error:
+        if args.repair_notebooklm:
+            repair_notebooklm(args.vault)
+        elif args.luma:
+            apply_luma(args.vault)
+        elif args.repair_copilot_view:
+            repair_copilot_view(args.vault)
+        elif agent_setup:
+            apply_agent_clients(args.vault, args.hermes, args.copilot_cli, args.cursor, args.antigravity)
+        elif args.ai:
+            apply_ai(args.vault, args.node_path, args.rag_config, args.model, args.cpu_embeddings,
+                     args.enable_model, args.opencode_path, args.gpu_qwen)
+        else:
+            restore(args.restore) if args.restore else apply(args.vault)
+    except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError) as error:
         print(f"underlight-obsidian: {error}", file=sys.stderr)
         return 1
     return 0

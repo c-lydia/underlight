@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Google's official ACP runtime; authentication stays in its host keyring.
+set -euo pipefail
+binary="$HOME/.local/share/underlight/antigravity-acp/1.4.3/agy_acp_server.par"
+if [[ -f /.flatpak-info ]]; then
+  exec flatpak-spawn --host --directory="$PWD" "$binary" --uid= "$@"
+fi
+exec "$binary" --uid= "$@"

@@ -1,0 +1,212 @@
+#!/usr/bin/env python3
+"""Luma's desktop avatar. Preferences are shared with the Obsidian companion."""
+import argparse
+import ctypes
+import fcntl
+import json
+import math
+import os
+import signal
+from pathlib import Path
+import subprocess
+import time
+
+ASSETS = Path(__file__).resolve().parents[1] / 'share/underlight/luma'
+STATE = Path.home() / '.config/underlight/luma.json'
+AGENTS = json.loads((ASSETS / 'agents.json').read_text())
+
+
+def read_state():
+    try:
+        value = json.loads(STATE.read_text())
+        return value if isinstance(value, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_state(**changes):
+    state = {**read_state(), **changes}
+    STATE.parent.mkdir(parents=True, exist_ok=True)
+    temp = STATE.with_name(f'.luma-{os.getpid()}.json')
+    temp.write_text(json.dumps(state, indent=2) + '\n')
+    temp.replace(STATE)
+    return state
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--show', action='store_true')
+    parser.add_argument('--menu', action='store_true', help='show Luma and open the launcher')
+    parser.add_argument('--hide', action='store_true')
+    parser.add_argument('--status', action='store_true')
+    args = parser.parse_args()
+    if args.status:
+        print(json.dumps(read_state(), indent=2)); return
+    if args.hide:
+        save_state(desktopHidden=True); return
+    if args.show or args.menu:
+        save_state(desktopHidden=False)
+    lock_path = Path(os.environ.get('XDG_RUNTIME_DIR', '/tmp')) / f'underlight-luma-{os.getuid()}.lock'
+    lock = lock_path.open('a+')
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        if args.menu:
+            lock.seek(0)
+            try: os.kill(int(lock.read().strip()), signal.SIGUSR1)
+            except (ValueError, ProcessLookupError): pass
+        return
+    lock.seek(0); lock.truncate(); lock.write(str(os.getpid())); lock.flush()
+    import gi
+    gi.require_version('Gtk', '3.0')
+    gi.require_version('GLibUnix', '2.0')
+    from gi.repository import Gtk, Gdk, GdkPixbuf, GLib, GLibUnix
+
+    class Luma:
+        def __init__(self):
+            self.state = read_state()
+            self.hover = False
+            self.open = False
+            self.last_poll = 0
+            self.layer = ctypes.CDLL('libgtk-layer-shell.so.0')
+            for name, types in {
+                'init_for_window': [ctypes.c_void_p],
+                'set_namespace': [ctypes.c_void_p, ctypes.c_char_p],
+                'set_layer': [ctypes.c_void_p, ctypes.c_int],
+                'set_anchor': [ctypes.c_void_p, ctypes.c_int, ctypes.c_bool],
+                'set_margin': [ctypes.c_void_p, ctypes.c_int, ctypes.c_int],
+                'set_exclusive_zone': [ctypes.c_void_p, ctypes.c_int],
+                'set_keyboard_mode': [ctypes.c_void_p, ctypes.c_int],
+            }.items():
+                getattr(self.layer, 'gtk_layer_' + name).argtypes = types
+            css = Gtk.CssProvider()
+            css.load_from_data(b'''window {background:transparent;} .luma-panel {background:linear-gradient(135deg,rgba(70,95,130,.57),rgba(12,19,35,.65));color:#e6eeff;border:1px solid rgba(218,242,255,.5);border-radius:24px;padding:18px;box-shadow:inset 0 1px rgba(255,255,255,.35);} .luma-panel button {background:rgba(168,198,231,.08);color:#e6eeff;border:1px solid rgba(218,242,255,.12);border-radius:12px;padding:8px;margin:2px;} .luma-panel button:hover {background:rgba(136,221,238,.22);} .luma-panel .selected {background:rgba(99,203,228,.19);border-color:rgba(169,237,255,.5);} .luma-title {font-size:20px;color:#b4f2ff;}''')
+            Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), css, 600)
+            sheet = GdkPixbuf.Pixbuf.new_from_file(str(ASSETS / 'avatar.png'))
+            w, h = sheet.get_width() // 2, sheet.get_height() // 2
+            self.poses = [sheet.new_subpixbuf(x*w, y*h, w, h).scale_simple(110, 110, GdkPixbuf.InterpType.BILINEAR) for y in range(2) for x in range(2)]
+            self.avatar = self.window('underlight-luma', 20, 0)
+            self.canvas = Gtk.EventBox()
+            self.canvas.set_visible_window(False)
+            self.stage = Gtk.Fixed()
+            self.portrait = Gtk.Image.new_from_pixbuf(self.poses[0])
+            self.stage.put(self.portrait, 4, 7)
+            self.canvas.add(self.stage)
+            self.canvas.set_size_request(118, 132)
+            self.canvas.set_can_focus(True)
+            self.canvas.set_tooltip_text('Luma · click to open AI tools · right-click to switch sides')
+            self.canvas.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.ENTER_NOTIFY_MASK | Gdk.EventMask.LEAVE_NOTIFY_MASK)
+            self.canvas.connect('button-press-event', self.click)
+            self.canvas.connect('enter-notify-event', lambda *_: setattr(self, 'hover', True))
+            self.canvas.connect('leave-notify-event', lambda *_: setattr(self, 'hover', False))
+            self.canvas.connect('key-press-event', self.key)
+            self.avatar.add(self.canvas)
+            self.panel = self.window('underlight-luma-panel', 155, 2)
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+            box.get_style_context().add_class('luma-panel')
+            title = Gtk.Label(label='Luma / your AI corner'); title.get_style_context().add_class('luma-title')
+            box.pack_start(title, False, False, 3)
+            self.buttons = {}
+            for agent in AGENTS:
+                button = Gtk.Button(label=agent['name'])
+                button.set_tooltip_text(agent['detail'])
+                button.connect('clicked', self.choose, agent)
+                box.pack_start(button, False, False, 0)
+                self.buttons[agent['id']] = button
+            self.status = Gtk.Label(label='Choose an AI to open it.'); self.status.set_line_wrap(True)
+            box.pack_start(self.status, False, False, 3)
+            controls = Gtk.Box(spacing=4)
+            for title, action in [('Motion', self.motion), ('Dock', self.dock), ('Hide', self.hide)]:
+                b = Gtk.Button(label=title); b.connect('clicked', action); controls.pack_start(b, True, True, 0)
+            box.pack_start(controls, False, False, 0)
+            close = Gtk.Button(label='Close'); close.connect('clicked', lambda *_: self.toggle(False)); box.pack_start(close, False, False, 0)
+            self.panel.add(box)
+            self.panel.connect('key-press-event', self.key)
+            self.apply()
+            GLib.timeout_add(50, self.tick)
+
+        def window(self, name, bottom, keyboard):
+            win = Gtk.Window(); win.set_decorated(False); win.set_app_paintable(True)
+            win.set_visual(win.get_screen().get_rgba_visual()); win.set_title(name)
+            p = ctypes.c_void_p(hash(win))
+            self.layer.gtk_layer_init_for_window(p)
+            self.layer.gtk_layer_set_namespace(p, name.encode())
+            self.layer.gtk_layer_set_layer(p, 2)
+            self.layer.gtk_layer_set_keyboard_mode(p, keyboard)
+            self.layer.gtk_layer_set_exclusive_zone(p, 0)
+            self.layer.gtk_layer_set_anchor(p, 3, True)
+            self.layer.gtk_layer_set_margin(p, 3, bottom)
+            return win
+
+        def apply(self):
+            left = self.state.get('dock') == 'left'
+            for win in [self.avatar, self.panel]:
+                p = ctypes.c_void_p(hash(win))
+                for edge in [0, 1]:
+                    self.layer.gtk_layer_set_anchor(p, edge, (edge == 0) == left)
+                    self.layer.gtk_layer_set_margin(p, edge, 18)
+            for key, button in self.buttons.items():
+                ctx = button.get_style_context()
+                (ctx.add_class if key == self.state.get('selected', 'opencode') else ctx.remove_class)('selected')
+            if self.state.get('desktopHidden'):
+                self.avatar.hide(); self.toggle(False)
+            else:
+                self.avatar.show_all()
+
+        def animate(self):
+            moving = self.state.get('motion', True)
+            y = 7 + (math.sin(time.monotonic()*1.8)*4 if moving else 0)
+            self.portrait.set_from_pixbuf(self.poses[1 if self.hover or self.open else 0])
+            self.stage.move(self.portrait, 4, int(y))
+
+        def tick(self):
+            if time.monotonic() - self.last_poll > 1:
+                self.last_poll = time.monotonic(); state = read_state()
+                if state != self.state: self.state = state; self.apply()
+            if not self.state.get('desktopHidden'): self.animate()
+            return True
+
+        def toggle(self, value=None):
+            self.open = not self.open if value is None else value
+            self.panel.show_all() if self.open else self.panel.hide()
+
+        def click(self, _, event):
+            self.dock() if event.button == 3 else self.toggle()
+            return True
+
+        def key(self, _, event):
+            if event.keyval == Gdk.KEY_Escape: self.toggle(False)
+            elif event.keyval in [Gdk.KEY_Return, Gdk.KEY_space]: self.toggle()
+            return False
+
+        def dock(self, *_):
+            self.state = save_state(dock='right' if self.state.get('dock') == 'left' else 'left'); self.apply()
+
+        def motion(self, *_):
+            self.state = save_state(motion=not self.state.get('motion', True))
+
+        def hide(self, *_):
+            self.state = save_state(desktopHidden=True); self.apply()
+
+        def choose(self, _, agent):
+            self.state = save_state(selected=agent['id']); self.apply()
+            command = [str(Path.home()/'.local/bin/underlight-ai'), agent['command']]
+            if agent['id'] == 'qwen': command.append('qwen3:4b')
+            elif agent['id'] != 'rag': command.append(self.state.get('vault', str(Path.home())))
+            try:
+                subprocess.Popen(command, start_new_session=True)
+                self.toggle(False)
+            except OSError as e: self.status.set_text(str(e))
+
+    companion = Luma()
+    def open_menu():
+        companion.state = save_state(desktopHidden=False)
+        companion.apply(); companion.toggle(True)
+        return True
+    GLibUnix.signal_add(GLib.PRIORITY_DEFAULT, signal.SIGUSR1, open_menu)
+    if args.menu: open_menu()
+    Gtk.main()
+
+
+if __name__ == '__main__':
+    main()

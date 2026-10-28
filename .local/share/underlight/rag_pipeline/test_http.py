@@ -82,3 +82,15 @@ class HttpTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "Cannot reach"):
                 assistant.ask_ollama("q", raise_on_error=True)
             self.assertTrue(assistant.ask_ollama("q").startswith("[ERROR:"))
+
+    def test_gpu_thinking_and_keepalive_reach_ollama(self):
+        import assistant
+        response = Mock()
+        response.json.return_value = {"response": "answer"}
+        with patch.dict(assistant.cfg["ollama"], {"options": {"num_gpu": 99}, "think": True, "keep_alive": "15m"}), \
+                patch.object(assistant.requests, "post", return_value=response) as post:
+            self.assertEqual(assistant.ask_ollama("q", raise_on_error=True), "answer")
+            payload = post.call_args.kwargs["json"]
+            self.assertEqual(payload["options"]["num_gpu"], 99)
+            self.assertTrue(payload["think"])
+            self.assertEqual(payload["keep_alive"], "15m")

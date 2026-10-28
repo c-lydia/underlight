@@ -1,0 +1,11 @@
+--- a/src/agentMode/ui/hooks/useChatRelevantNotesContext.ts
++++ b/src/agentMode/ui/hooks/useChatRelevantNotesContext.ts
+@@ -53,1 +53,1 @@
+-    ...contexts.flatMap((context) => context.notes),
++    ...contexts.flatMap((context) => context.notes ?? []),
+@@ -85,1 +85,1 @@
+-    file_paths: [...new Set(files.map((file) => getMiyoFilePath(app, file.path)))],
++    file_paths: [...new Set(files.filter((file) => file && typeof file.path === "string").map((file) => getMiyoFilePath(app, file.path)))],
+@@ -114,1 +114,1 @@
+-      (count, context) => count + context.urls.length + (context.webTabs?.length ?? 0),
++      (count, context) => count + (context.urls?.length ?? 0) + (context.webTabs?.length ?? 0),

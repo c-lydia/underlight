@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Underlight Antigravity
+Comment=Google Antigravity CLI
+Exec=agy
+Icon=utilities-terminal
+Terminal=true
+Categories=Development;

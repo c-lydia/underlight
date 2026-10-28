@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Underlight Cursor Agent
+Comment=Cursor CLI with your account's available models
+Exec=cursor-agent
+Icon=utilities-terminal
+Terminal=true
+Categories=Development;

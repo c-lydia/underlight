@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Underlight Luma
+Comment=Show your animated AI companion
+Exec=underlight-luma --show
+Icon=face-smile
+Terminal=false
+Categories=Utility;

@@ -1,0 +1,22 @@
+.underlight-luma{position:fixed;right:20px;bottom:32px;z-index:95;font-family:var(--font-interface);color:var(--text-normal)}
+.underlight-luma[hidden]{display:none}
+.underlight-luma-avatar{display:block!important;width:110px!important;height:110px!important;padding:0!important;border:0!important;background-color:transparent!important;background-size:220px 220px!important;background-position:0 0!important;box-shadow:none!important;cursor:pointer;animation:luma-float 3.5s ease-in-out infinite;filter:drop-shadow(0 3px 9px #66d9ee44)}
+.underlight-luma-avatar:hover,.luma-open .underlight-luma-avatar{background-position:-110px 0!important;filter:drop-shadow(0 3px 14px #66d9ee88)}
+.underlight-luma-avatar:focus-visible{outline:2px solid #7ddbed!important;outline-offset:4px;border-radius:24px}
+.underlight-luma-panel{display:none;position:absolute;right:0;bottom:130px;width:300px;max-height:calc(100vh - 210px);overflow:auto;padding:20px;background:#171c30f5;border:1px solid #64779b;border-radius:20px;box-shadow:0 12px 40px #0006;backdrop-filter:blur(18px)}
+.luma-open .underlight-luma-panel{display:block}
+.underlight-luma-title{font-size:25px;letter-spacing:.03em;color:#8ce3ec}
+.underlight-luma-panel p{font-size:12px;color:#b9c6df;line-height:1.5;margin:5px 0 12px}
+.underlight-luma-choice{width:100%;display:flex!important;flex-direction:column;align-items:flex-start;height:auto!important;padding:8px 11px!important;margin:4px 0!important;background:#252d45!important;border:1px solid transparent!important;border-radius:10px!important;color:#e2eaff!important;box-shadow:none!important}
+.underlight-luma-choice small{font-size:11px;color:#a7b7d3;margin-top:3px}
+.underlight-luma-choice:hover,.underlight-luma-choice[aria-pressed=true]{border-color:#75c8db!important;background:#2b455e!important}
+.underlight-luma-controls{display:flex;gap:4px}.underlight-luma-controls button{flex:1;font-size:11px;padding:4px!important;background:#252d45!important;color:#dce4ff!important}
+.luma-left{left:20px;right:auto}.luma-left .underlight-luma-panel{left:0;right:auto}
+.luma-still .underlight-luma-avatar{animation:none}
+@keyframes luma-float{0%,100%{transform:translateY(0) rotate(-1deg)}50%{transform:translateY(-6px) rotate(1deg)}}
+@media(prefers-reduced-motion:reduce){.underlight-luma-avatar{animation:none}}
+/* Liquid glass: a bright rim, layered tint and backdrop depth. */
+.underlight-luma-panel{background:linear-gradient(135deg,rgba(96,132,166,.28),rgba(15,22,41,.66));border-color:rgba(222,244,255,.48);border-radius:24px;box-shadow:inset 0 1px 0 rgba(255,255,255,.42),inset 0 -1px 0 rgba(129,220,246,.16),0 16px 48px rgba(0,8,25,.3);backdrop-filter:blur(24px) saturate(160%)}
+.underlight-luma-choice{background:rgba(184,213,240,.07)!important;border-color:rgba(215,239,255,.1)!important}
+.underlight-luma-choice:hover,.underlight-luma-choice[aria-pressed=true]{background:rgba(115,208,232,.19)!important;border-color:rgba(170,233,253,.5)!important}
+.underlight-luma-controls button{background:rgba(184,213,240,.09)!important}

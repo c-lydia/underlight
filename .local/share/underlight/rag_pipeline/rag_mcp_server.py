@@ -129,6 +129,7 @@ def ask_local_assistant_impl(
     answer = ask_ollama(
         build_prompt(query, chunks),
         max_context=cfg["ollama"].get("max_context_tokens", 4096),
+        raise_on_error=True,
     )
     return {
         "query": query,

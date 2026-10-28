@@ -110,11 +110,15 @@ def ask_ollama(prompt: str, model: str | None = None,
         "prompt": prompt,
         "stream": False,
         "options": {
+            **cfg["ollama"].get("options", {}),
             "num_ctx": max_context,
             "temperature": 0.4,
             "top_p": 0.9,
         },
     }
+    for key in ("think", "keep_alive"):
+        if key in cfg["ollama"]:
+            payload[key] = cfg["ollama"][key]
     try:
         resp = requests.post(OLLAMA_URL, json=payload, timeout=OLLAMA_TIMEOUT)
         resp.raise_for_status()

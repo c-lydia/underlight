@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Share the host Cursor CLI login with Obsidian's ACP client.
+set -euo pipefail
+if [[ -f /.flatpak-info ]]; then
+  exec flatpak-spawn --host --directory="$PWD" "$HOME/.local/bin/cursor-agent" "$@"
+fi
+exec "$HOME/.local/bin/cursor-agent" "$@"
