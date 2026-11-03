@@ -137,6 +137,43 @@ contains the style; `vault/` holds the starter notes and templates. The built-in
 Templates plugin handles `{{date}}`, `{{time}}`, and `{{title}}`; Templater is not
 required. Disable the `underlight` CSS snippet in Appearance to disable its style.
 
+## PDF equations and page layout
+
+For Better Export PDF **2.0.3**, close Obsidian and apply the persistent repair:
+
+```sh
+underlight-obsidian /path/to/vault --repair-pdf-export
+```
+
+Reopen Obsidian and export through **Better Export PDF** as usual. Both plugin
+engines wait for Obsidian's MathJax glyph stylesheet, image loads, and fonts
+before printing. Engine 1 also waits for its print-view CSS to be inserted.
+Failed images or an asset load exceeding 15 seconds abort the export instead
+of silently producing an incomplete PDF. This fixes missing equation letters
+caused by exporting before their styles have reached the print view; it does
+not correct LaTeX syntax or arithmetic in notes.
+
+The separate `underlight-pdf` snippet keeps diagrams and display equations
+together, avoids headings stranded at page bottoms, and provides light-page
+syntax colors. Better Export PDF’s preview uses the same light code palette,
+so inline code and fenced code blocks do not inherit the dark desktop colors.
+Images have a 230 mm height limit intended for A4 portrait output. Normal
+editor/reading-view styling and existing snippets are preserved. The layout rules
+also apply to built-in PDF export; the rendering wait is specific to Better
+Export PDF, so use that exporter for the math fix.
+
+The repair persists across app restarts and normal Underlight appearance
+reapplication. Plugin updates can replace its bundle: reapply after reinstalling
+2.0.3; other versions or changed code are refused until reviewed. The helper
+backs up every changed file and supports the same guarded rollback below.
+It is shipped by the shared Ubuntu/EndeavourOS installer; neither installer
+changes vaults automatically. No extra plugin or background service is required.
+
+Implementation: `obsidian/pdf-export-ready.js`,
+`obsidian/better-export-pdf-2.0.3.json`, and `obsidian/underlight-pdf.css` under
+`.local/share/underlight/`. Run `python3 tests/test_obsidian.py` and
+`node tests/test_obsidian_pdf.js` to verify installation, rollback, and readiness.
+
 ## Backup and rollback
 
 Each apply that changes files creates a private backup directory below
@@ -254,6 +291,75 @@ contains no credentials. Agent history remains with each agent's own client.
 Luma is a launcher, not an additional chat service. Account sign-ins and quotas
 are those of the underlying agents. The desktop requires GTK3, PyGObject,
 and gtk-layer-shell, also used by Underlight widgets.
+
+### Luma visibility and launch feedback
+
+There is no assigned desktop show/hide keybinding. The installed application
+entry restores the desktop avatar, and these commands control it explicitly:
+
+```sh
+underlight-luma --show
+underlight-luma --menu   # show the avatar and open its launcher
+underlight-luma --hide
+underlight-luma --status
+```
+
+Inside Obsidian, **Underlight Luma: Show or hide Luma** is available in the
+command palette and can be assigned a shortcut in Settings → Hotkeys. Desktop
+and Obsidian visibility are separate; selected agent, dock side and motion are
+shared. Right-click the desktop avatar to switch sides.
+
+The desktop panel now stays open with **Opening…**, then launch status. A
+launcher failure displays its error instead of silently closing the panel.
+Invalid working directories are reported before launching. Client errors inside
+Kitty remain visible until Enter is pressed. OpenCode, Zen, Hermes and Ollama
+still open if the optional power-profile request fails. Desktop launches add
+`~/.local/bin` and `~/.opencode/bin` to PATH, since a graphical session may not
+inherit shell startup settings. The panel has an explicit minimum viewport, preventing GTK layer-shell from
+collapsing it to the title row. Its height is capped to the current monitor,
+with scrolling on short displays and resizing when display geometry changes.
+
+If a client still does not open, run its equivalent `underlight-ai COMMAND`
+in a terminal with the same directory. For example:
+
+```sh
+underlight-ai opencode /path/to/vault
+underlight-ai copilot /path/to/vault
+underlight-ai cursor /path/to/vault
+underlight-ai antigravity /path/to/vault
+```
+
+Luma does not install missing clients or complete account sign-ins. In Obsidian,
+OpenCode requires Copilot V4 Agent Chat; Qwen and Ask my notes open Underlight's
+local terminal tools. Other agents
+require Agent Client plus their configured host bridges. A missing plugin,
+unsupported interface or failure to create a chat remains visible in Luma's
+panel. Repeated clicks while a chat is opening do not create duplicate sessions.
+Agent Client chats open in the right sidebar. These UI checks cannot prove a
+provider is authenticated or that a model request will succeed.
+
+After updating the repository, restart desktop Luma (or log out/in). For
+Obsidian, close the app, reapply `underlight-obsidian /path/to/vault --luma`, and
+reopen it. The vault plugin is a backed-up copy, not a live symlink.
+
+### Bridge command reference
+
+These helpers are installed on both Ubuntu and EndeavourOS. Setup writes their
+paths into the selected vault's plugin configuration; normally they are called
+by the plugins rather than by hand.
+
+| Helper | Responsibility |
+| --- | --- |
+| `underlight-obsidian-opencode` | Isolate the Student-compatible OpenCode build's XDG data/config/state while recording host XDG paths for bridges |
+| `underlight-obsidian-rag` | Run the local RAG MCP process with the selected vault configuration, bridging out of Flatpak when required |
+| `underlight-obsidian-hermes` | Start host Hermes with the vault RAG configuration when present |
+| `underlight-obsidian-copilot` | Start host Copilot CLI with the vault RAG configuration when present |
+| `underlight-obsidian-cursor` | Start the host `~/.local/bin/cursor-agent`, including ACP arguments from Agent Client |
+| `underlight-obsidian-antigravity` | Start the separately installed, pinned Antigravity ACP runtime |
+
+The host wrappers preserve native credentials; they do not copy account tokens
+into Luma's shared preferences. See the setup sections above for required
+versions, runtime locations, plugins and configuration flags.
 
 ## NotebookLM blank panel
 

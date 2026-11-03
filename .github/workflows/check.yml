@@ -5,6 +5,19 @@ on:
   pull_request:
 
 jobs:
+  arch-smoke:
+    runs-on: ubuntu-latest
+    container: archlinux:base
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Arch workflow test dependencies
+        run: |
+          pacman -Syu --noconfirm --needed git python python-yaml python-requests python-tqdm nodejs neovim screen tmux
+          useradd --create-home underlight-ci
+          chown -R underlight-ci:underlight-ci "$GITHUB_WORKSPACE"
+      - name: Check workflows and staged EndeavourOS installation as a desktop user
+        run: runuser -u underlight-ci -- bash tests/smoke.sh
+
   smoke:
     runs-on: ubuntu-latest
     steps:

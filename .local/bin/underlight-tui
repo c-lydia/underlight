@@ -9,8 +9,8 @@ import shutil
 import socket
 import subprocess
 import sys
-import textwrap
 import time
+import unicodedata
 
 
 def run(args, timeout=10):
@@ -21,7 +21,9 @@ def run(args, timeout=10):
         result = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
         output = (result.stdout + result.stderr).strip()
         return output or f'{args[0]} exited with status {result.returncode}.'
-    except (OSError, subprocess.TimeoutExpired) as error:
+    except subprocess.TimeoutExpired:
+        return f'{os.path.basename(args[0])} timed out after {timeout} seconds.'
+    except OSError as error:
         return str(error)
 
 
@@ -32,7 +34,10 @@ def host(value):
 
 
 def port(value):
-    number = int(value)
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        raise ValueError('Port must be a number between 1 and 65535.') from None
     if not 1 <= number <= 65535:
         raise ValueError('Port must be between 1 and 65535.')
     return number
@@ -51,17 +56,27 @@ def status():
 def dns(target):
     # Keep resolver delays bounded by running getaddrinfo in a child process.
     return run([sys.executable, '-c',
-                'import socket,sys; print("\\n".join(sorted({r[4][0] for r in socket.getaddrinfo(sys.argv[1], None)})))',
+                '''import socket,sys
+try:
+    print("\\n".join(sorted({r[4][0] for r in socket.getaddrinfo(sys.argv[1], None)})))
+except OSError as error:
+    print(f'{sys.argv[1]}: {error}')
+''',
                 host(target)], 6)
 
 
 def tcp(target, number):
-    start = time.monotonic()
-    try:
-        with socket.create_connection((host(target), port(number)), timeout=3):
-            return f'{target}:{number} connected in {(time.monotonic() - start) * 1000:.1f} ms'
-    except OSError as error:
-        return f'{target}:{number}: {error}'
+    # socket's connection timeout does not cover system DNS resolution.
+    target, number = host(target), port(number)
+    return run([sys.executable, '-c', '''import socket,sys,time
+target, number = sys.argv[1], int(sys.argv[2])
+start = time.monotonic()
+try:
+    with socket.create_connection((target, number), timeout=3):
+        print(f'{target}:{number} connected in {(time.monotonic() - start) * 1000:.1f} ms')
+except OSError as error:
+    print(f'{target}:{number}: {error}')
+''', target, str(number)], 6)
 
 
 def udp_listen(number, bind='0.0.0.0'):
@@ -93,29 +108,161 @@ def layout(height, width):
     return width >= 100 and height >= 20
 
 
-def put(screen, y, x, text, attr=0):
-    height, width = screen.getmaxyx()
-    if 0 <= y < height and 0 <= x < width - 1:
+def cell_width(text):
+    return sum(0 if unicodedata.combining(c) else
+               2 if unicodedata.east_asian_width(c) in ('W', 'F') else 1 for c in text)
+
+
+def fit(text, width):
+    """Clip by terminal cells so wide characters cannot cross pane boundaries."""
+    result, used = [], 0
+    for char in text:
+        size = cell_width(char)
+        if used + size > width:
+            break
+        result.append(char)
+        used += size
+    return ''.join(result)
+
+
+def wrapped(text, width):
+    lines = []
+    for line in clean(text).expandtabs(4).split('\n'):
+        while cell_width(line) > width:
+            part = fit(line, width)
+            # A two-cell glyph cannot fit a one-cell viewport.
+            if not part:
+                part = line[0]
+            lines.append(part)
+            line = line[len(part):]
+        lines.append(line)
+    return lines
+
+
+def put(screen, y, x, text, attr=0, width=None):
+    height, columns = screen.getmaxyx()
+    available = columns - x - 1
+    if width is not None:
+        available = min(width, available)
+    if 0 <= y < height and 0 <= x < columns - 1 and available > 0:
         try:
-            screen.addnstr(y, x, clean(text), width - x - 1, attr)
+            screen.addstr(y, x, fit(clean(text).expandtabs(4).split('\n')[0], available), attr)
         except curses.error:
             pass
 
 
-def prompt(screen, label):
-    screen.timeout(-1)
-    curses.echo()
+def palette():
+    """Use terminal palette entries, without changing the user's color definitions."""
+    styles = dict(text=0, muted=curses.A_DIM, accent=curses.A_BOLD,
+                  violet=curses.A_BOLD, line=curses.A_DIM, header=curses.A_BOLD,
+                  surface=0, selected=curses.A_REVERSE | curses.A_BOLD)
+    if os.environ.get('NO_COLOR') or not curses.has_colors():
+        return styles
     try:
-        curses.curs_set(1)
-        height, width = screen.getmaxyx()
-        screen.move(height - 2, 0)
-        screen.clrtoeol()
-        put(screen, height - 2, 0, label)
-        x = min(len(label), max(0, width - 3))
-        answer = screen.getstr(height - 2, x, max(1, width - x - 2))
-        return answer.decode(errors='replace').strip()
+        curses.start_color()
+        curses.use_default_colors()
+        extended = curses.COLORS >= 256
+        # Follow the terminal's Underlight palette, including custom themes.
+        colors = [('text', 15, -1), ('muted', 7, -1), ('accent', 6, -1),
+                  ('violet', 5, -1), ('line', 8, -1), ('header', 15, -1),
+                  ('surface', 7, -1), ('selected', 15, 8)]
+        basic = {'text': curses.COLOR_WHITE, 'muted': curses.COLOR_WHITE,
+                 'accent': curses.COLOR_CYAN, 'violet': curses.COLOR_MAGENTA,
+                 'line': curses.COLOR_BLUE, 'header': curses.COLOR_CYAN,
+                 'surface': curses.COLOR_WHITE, 'selected': curses.COLOR_WHITE}
+        for index, (role, foreground, background) in enumerate(colors, 1):
+            if not extended:
+                foreground = basic[role]
+                background = curses.COLOR_BLUE if role == 'selected' else -1
+            curses.init_pair(index, foreground, background)
+            styles[role] = curses.color_pair(index)
+        for role in ('accent', 'header', 'selected'):
+            styles[role] |= curses.A_BOLD
+    except curses.error:
+        pass
+    return styles
+
+
+def keybar(screen, y, items, styles):
+    x, width = 2, screen.getmaxyx()[1]
+    for key, label in items:
+        size = cell_width(key + ' ' + label) + 3
+        if x + size > width:
+            break
+        put(screen, y, x, key, styles['accent'])
+        put(screen, y, x + cell_width(key) + 1, label, styles['muted'])
+        x += size
+
+
+def prompt(screen, label, default='', validate=None):
+    """Editable, horizontally scrolling input; Escape cancels without submitting."""
+    value, cursor, start, error = default, len(default), 0, ''
+    screen.timeout(100)
+    curses.noecho()
+    try:
+        try:
+            curses.curs_set(1)
+        except curses.error:
+            pass
+        while True:
+            height, width = screen.getmaxyx()
+            for y in range(max(0, height - 4), height):
+                screen.move(y, 0)
+                screen.clrtoeol()
+            if height < 8 or width < 28:
+                put(screen, max(0, height - 2), 0, 'Resize to at least 28 x 8.')
+            else:
+                put(screen, height - 4, 1, label, curses.A_BOLD)
+                room = width - 5
+                start = min(start, cursor)
+                while cell_width(value[start:cursor]) >= room:
+                    start += 1
+                put(screen, height - 3, 1, '> ' + fit(value[start:], room))
+                put(screen, height - 2, 1, error or 'Enter: accept | Esc: cancel')
+                put(screen, height - 1, 1, 'Ctrl+U: clear | Left/Right: edit', curses.A_DIM)
+                screen.move(height - 3, 3 + cell_width(value[start:cursor]))
+            screen.refresh()
+            try:
+                key = screen.get_wch()
+            except curses.error:
+                continue
+            if key == '\x1b':
+                return None
+            if key == '\x03':
+                raise KeyboardInterrupt
+            if height < 8 or width < 28:
+                continue
+            if key in ('\n', '\r', curses.KEY_ENTER):
+                answer = value.strip()
+                try:
+                    if validate:
+                        validate(answer)
+                    return answer
+                except ValueError as problem:
+                    error = str(problem)
+            elif key in (curses.KEY_LEFT, '\x02'):
+                cursor = max(0, cursor - 1)
+            elif key in (curses.KEY_RIGHT, '\x06'):
+                cursor = min(len(value), cursor + 1)
+            elif key in (curses.KEY_HOME, '\x01'):
+                cursor = 0
+            elif key in (curses.KEY_END, '\x05'):
+                cursor = len(value)
+            elif key in (curses.KEY_BACKSPACE, '\x7f', '\b'):
+                if cursor:
+                    value = value[:cursor - 1] + value[cursor:]
+                    cursor -= 1
+                error = ''
+            elif key == curses.KEY_DC:
+                value = value[:cursor] + value[cursor + 1:]
+                error = ''
+            elif key == '\x15':
+                value, cursor, start, error = '', 0, 0, ''
+            elif isinstance(key, str) and key.isprintable() and len(value) < 4096:
+                value = value[:cursor] + key + value[cursor:]
+                cursor += len(key)
+                error = ''
     finally:
-        curses.noecho()
         try:
             curses.curs_set(0)
         except curses.error:
@@ -137,6 +284,97 @@ def interactive(screen, args, pause=False):
         screen.refresh()
 
 
+def available_tools():
+    tools = [('Inspect', 'Network overview', 'Addresses, routes, and listening sockets. Android may restrict these.'),
+             ('Diagnose', 'DNS lookup', 'Resolve a hostname using the system resolver.'),
+             ('Diagnose', 'Ping host', 'Send three ICMP probes. If Android blocks ping, try TCP.'),
+             ('Diagnose', 'TCP connection', 'Test a single host and port with a TCP connection.'),
+             ('Datagrams', 'Receive UDP packet', 'Wait up to 10 seconds for one packet on all IPv4 interfaces.'),
+             ('Datagrams', 'Send UDP packet', 'Send a short test datagram to a host and port.'),
+             ('Connect', 'SSH session', 'Open SSH. Type exit in the remote shell to return here.')]
+    if shutil.which('underlight-net-admin'):
+        tools.extend([('Routing', 'NAT rule preview', 'Review IPv4 NAT rules without changing the host.'),
+                      ('Routing', 'Start NAT (root)', 'Requires CAP_NET_ADMIN, configured interfaces, and IPv4 forwarding.'),
+                      ('Routing', 'Stop NAT (root)', 'Remove only the NAT rules created by Underlight.')])
+    if shutil.which('nmcli') and os.path.isdir('/run/systemd/system'):
+        tools.extend([('Desktop', 'Start desktop hotspot', 'Create a NetworkManager hotspot on a spare Wi-Fi adapter.'),
+                      ('Desktop', 'Stop desktop hotspot', 'Stop the Underlight NetworkManager hotspot.')])
+    if shutil.which('nmtui') and os.path.isdir('/run/systemd/system'):
+        tools.append(('Desktop', 'Desktop network settings', 'Open NetworkManager nmtui, then return here.'))
+    if shutil.which('underlight-android') and (os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY')):
+        tools.extend([('Android', 'Android Studio', 'Launch Android Studio on this desktop.'),
+                      ('Android', 'Android emulator', 'Choose an existing AVD in the desktop picker.'),
+                      ('Android', 'Android & Flutter doctor', 'Check SDK tools, Flutter, and emulator acceleration.')])
+    return tools
+
+
+def tool_rows(tools, query=''):
+    rows, previous = [], None
+    for index, (group, name, description) in enumerate(tools):
+        if query.casefold() not in f'{group} {name} {description}'.casefold():
+            continue
+        if group != previous:
+            rows.append((None, group.upper()))
+            previous = group
+        rows.append((index, name))
+    return rows
+
+
+class History:
+    """Keep the last 20 results in memory, including a separately tracked running job."""
+    def __init__(self):
+        self.entries = []
+        self.index = -1
+
+    def add(self, title, text, state='Finished'):
+        entry = dict(title=title, text=text, state=state, started=time.monotonic(), elapsed=None)
+        self.entries.append(entry)
+        self.entries = self.entries[-20:]
+        self.index = len(self.entries) - 1
+        return entry
+
+    @property
+    def current(self):
+        return self.entries[self.index] if self.entries else None
+
+    def move(self, offset):
+        if self.entries:
+            self.index = max(0, min(len(self.entries) - 1, self.index + offset))
+
+
+HELP = '''KEYBOARD GUIDE
+
+Tools
+  Up/Down or j/k  Select a tool
+  Enter          Run the selected tool
+  /              Filter tools (empty clears)
+  Tab or Right   View results
+
+Results
+  Up/Down or j/k  Scroll when focused
+  PgUp/PgDn      Scroll one page
+  Home/End       First / last line
+  [ / ]          Older / newer result
+  Tab, b or Left Return to tools
+
+Input
+  Enter          Accept the value
+  Escape         Cancel the whole action
+  Left/Right     Move the cursor
+  Home/End       Start / end of the value
+  Ctrl+U         Clear the value
+
+? opens or closes this guide. Escape returns to tools; q quits.
+Inputs and the last 20 results stay in memory for this session only.
+A running job continues while you browse tools or older results.
+No probes run until you choose a tool. SSH exits back to the lab.
+'''
+
+
+class InputCancelled(Exception):
+    pass
+
+
 def tui(screen):
     try:
         curses.curs_set(0)
@@ -144,134 +382,229 @@ def tui(screen):
         pass
     screen.keypad(True)
     screen.timeout(100)
-    accent = curses.A_BOLD
-    if curses.has_colors():
-        curses.start_color()
-        curses.use_default_colors()
-        curses.init_pair(1, curses.COLOR_CYAN, -1)
-        accent |= curses.color_pair(1)
-    actions = [('Network overview', 'Addresses, routes, and listening sockets; Android may restrict these.'),
-               ('DNS lookup', 'Resolve one hostname using the system resolver.'),
-               ('Ping host', 'Three ICMP probes. If Android blocks ping, try TCP instead.'),
-               ('TCP connection', 'Test one host and port with an ordinary TCP connection.'),
-               ('Receive UDP packet', 'Listen for one datagram on all IPv4 interfaces, for up to 10 seconds.'),
-               ('Send UDP packet', 'Send a short test datagram to a host and port.'),
-               ('SSH session', 'Open an interactive SSH session; exit to return here.')]
-    if shutil.which('underlight-net-admin'):
-        actions.extend([('NAT rule preview', 'Review IPv4 NAT rules without changing the host.'),
-                        ('Start NAT (root)', 'Requires real CAP_NET_ADMIN, configured interfaces, and IPv4 forwarding.'),
-                        ('Stop NAT (root)', 'Remove only the NAT rules created by Underlight.')])
-    if shutil.which('nmcli') and os.path.isdir('/run/systemd/system'):
-        actions.extend([('Start desktop hotspot', 'Create a NetworkManager hotspot on a spare Wi-Fi adapter.'),
-                        ('Stop desktop hotspot', 'Stop the Underlight NetworkManager hotspot.')])
-    if shutil.which('nmtui') and os.path.isdir('/run/systemd/system'):
-        actions.append(('Desktop network settings', 'Open NetworkManager nmtui, then return here.'))
-    if shutil.which('underlight-android') and (os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY')):
-        actions.extend([('Android Studio', 'Launch Android Studio on this desktop.'),
-                        ('Android emulator', 'Choose an existing AVD in the desktop picker.'),
-                        ('Android & Flutter doctor', 'Check SDK tools, Flutter, and emulator acceleration.')])
-    selected, scroll, result_page = 0, 0, False
-    output = 'Select a tool. No network probes run until you request them.'
+    styles = palette()
+    accent, muted, active = styles['accent'], styles['muted'], styles['selected']
+    if hasattr(screen, 'bkgd'):
+        screen.bkgd(' ', styles['text'])
+    tools = available_tools()
+    selected, menu_scroll, scroll = 0, 0, 0
+    results_focus, help_open, query = False, False, ''
+    history, defaults = History(), {}
+    notice = ''
+    hostname = socket.gethostname()
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-    pending = None
+    pending, running = None, None
+
+    def ask(label, field, default='', validate=None):
+        answer = prompt(screen, label, defaults.get(field, default), validate)
+        if answer is None:
+            raise InputCancelled
+        defaults[field] = answer
+        return answer
+
+    def required(value):
+        if not value:
+            raise ValueError('Enter a value, or press Escape to cancel.')
+
     try:
         while True:
             if pending and pending.done():
                 try:
-                    output = pending.result()
+                    running['text'], running['state'] = pending.result(), 'Finished'
                 except Exception as error:
-                    output = str(error)
+                    running['text'], running['state'] = str(error), 'Error'
+                running['elapsed'] = time.monotonic() - running['started']
                 pending = None
             height, width = screen.getmaxyx()
+            wide = layout(height, width)
+            body_y = 3 if height == 8 else 4
+            visible = max(1, height - 4 - body_y)
+            rows = tool_rows(tools, query)
+            choices = [index for index, _ in rows if index is not None]
+            if choices and selected not in choices:
+                selected = choices[0]
+            current = history.current
             screen.erase()
             if height < 8 or width < 28:
                 put(screen, 0, 0, 'Resize to at least 28 x 8.')
                 put(screen, 2, 0, 'q: quit')
             else:
-                wide = layout(height, width)
-                put(screen, 0, 1, 'UNDERLIGHT / NETWORK LAB', accent)
-                put(screen, 1, 1, f'{socket.gethostname()} | {"desktop" if wide else "compact"} | {"running..." if pending else "ready"}')
-                if wide or not result_page:
-                    visible = height - 6
-                    first = max(0, selected - visible + 1)
-                    for index, (name, _) in enumerate(actions[first:first + visible], first):
-                        put(screen, 3 + index - first, 1, ('> ' if index == selected else '  ') + name,
-                            curses.A_REVERSE if index == selected else 0)
-                if wide or result_page:
-                    x = 36 if wide else 1
+                put(screen, 0, 0, ' ' * (width - 1), styles['header'])
+                put(screen, 0, 2, 'UNDERLIGHT', styles['header'])
+                put(screen, 0, 13, '· Network lab', muted)
+                state = (f'Running: {running["title"]} ({time.monotonic() - running["started"]:.0f}s)'
+                         if pending else f'{len(history.entries)} results this session')
+                put(screen, 1, 2, f'{hostname}  ·  {state}' if wide else state, muted)
+                if wide:
+                    badge = 'Running' if pending else 'Idle'
+                    put(screen, 0, width - len(badge) - 3, badge, styles['header'])
+                if not help_open and (wide or not results_focus):
+                    menu_x, menu_width = (3, 29) if wide else (2, width - 4)
+                    heading = 'Tools' + (f' / {query}' if query else f'  {len(choices)}')
+                    if wide:
+                        for row in range(3, height - 3):
+                            put(screen, row, 34, '│', styles['line'])
+                    put(screen, body_y - 1, menu_x, heading,
+                        accent if not results_focus else muted, menu_width)
+                    selected_row = next((i for i, row in enumerate(rows) if row[0] == selected), 0)
+                    menu_scroll = min(menu_scroll, selected_row)
+                    menu_scroll = max(menu_scroll, selected_row - visible + 1)
+                    menu_scroll = min(menu_scroll, max(0, len(rows) - visible))
+                    for offset, (index, label) in enumerate(rows[menu_scroll:menu_scroll + visible]):
+                        group = index is None
+                        marker = '› ' if index == selected else '  '
+                        text = label.title() if group else marker + label
+                        if index == selected:
+                            text = fit(text, menu_width).ljust(menu_width)
+                        put(screen, body_y + offset, menu_x, text,
+                            muted if group else active if index == selected else styles['text'], menu_width)
+                    if not rows:
+                        put(screen, body_y, menu_x, 'No matching tools.', muted, menu_width)
+                lines = []
+                if help_open or wide or results_focus:
+                    x = 37 if wide and not help_open else 2
                     text_width = max(1, width - x - 2)
-                    lines = []
-                    for line in clean(output).splitlines():
-                        lines.extend(textwrap.wrap(line.expandtabs(4), text_width) or [''])
-                    scroll = min(scroll, max(0, len(lines) - (height - 6)))
-                    for offset, line in enumerate(lines[scroll:scroll + height - 6]):
-                        put(screen, 3 + offset, x, line)
-                elif not pending:
-                    put(screen, height - 3, 1, actions[selected][1])
-                put(screen, height - 2, 1, 'Up/Down: select | Enter: run | PgUp/PgDn: scroll' if wide else 'Up/Down: select/scroll | Enter: run')
-                put(screen, height - 1, 1, 'b: back  q: quit  | SSH: exit returns here', accent)
+                    title = 'Keyboard help' if help_open else current['title'] if current else 'Tool preview'
+                    put(screen, body_y - 1, x, title, accent, text_width)
+                    if choices:
+                        group, tool_name, tool_description = tools[selected][:3]
+                        preview = (
+                            f'\n{tool_name}\n\n'
+                            f'{tool_description}\n\n'
+                            'Press Enter to run.\n'
+                            'Results will appear here.'
+                        )
+                    else:
+                        preview = '\nNO MATCHING TOOLS\n\nPress / to search again, or Escape to clear.'
+                    output = HELP if help_open else current['text'] if current else preview
+                    lines = wrapped(output, text_width)
+                    scroll = min(scroll, max(0, len(lines) - visible))
+                    for offset, line in enumerate(lines[scroll:scroll + visible]):
+                        line_style = styles['text']
+                        if not current and not help_open:
+                            if scroll + offset == 1:
+                                line_style = accent
+                        put(screen, body_y + offset, x, line, line_style, text_width)
+                    meta = (f'Lines {scroll + 1}-{min(scroll + visible, len(lines))}/{len(lines)}'
+                            if current or help_open else 'Awaiting your command')
+                    if current and not help_open:
+                        elapsed = current['elapsed']
+                        detail = current['state'] + (f' in {elapsed:.1f}s' if elapsed is not None else '')
+                        meta = f'{history.index + 1}/{len(history.entries)} | {detail} | {meta}'
+                    put(screen, height - 4, x, ' ' + meta + ' ' if wide else meta, muted, text_width)
+                if notice:
+                    description = notice
+                elif help_open:
+                    description = '?: close help | PgUp/PgDn: scroll'
+                elif results_focus:
+                    description = 'Results focused | [ / ]: older / newer'
+                elif choices:
+                    description = tools[selected][2]
+                else:
+                    description = '/: change filter | Esc: clear'
+                put(screen, height - 3, 0, ' ' * (width - 1), styles['surface'])
+                put(screen, height - 3, 2, description, styles['surface'])
+                if help_open or results_focus:
+                    keys = [('j/k', 'scroll'), ('Tab', 'tools'), ('Home/End', 'first/last')]
+                else:
+                    keys = [('j/k', 'select'), ('Enter', 'run'), ('Tab', 'results')]
+                keybar(screen, height - 2, keys, styles)
+                keybar(screen, height - 1, [('/', 'find'), ('?', 'help'), ('q', 'quit'),
+                                           ('[ / ]', 'history'), ('PgUp/Dn', 'scroll')], styles)
             screen.refresh()
             key = screen.getch()
-            if key in (ord('q'), 27):
-                break
-            if key in (ord('b'), curses.KEY_LEFT):
-                result_page = False
-            if key in (curses.KEY_UP, ord('k')):
-                if result_page and not layout(height, width):
-                    scroll = max(0, scroll - 1)
-                else:
-                    selected = (selected - 1) % len(actions)
-            if key in (curses.KEY_DOWN, ord('j')):
-                if result_page and not layout(height, width):
-                    scroll += 1
-                else:
-                    selected = (selected + 1) % len(actions)
-            if key == curses.KEY_NPAGE:
-                scroll += max(1, height - 6)
-            if key == curses.KEY_PPAGE:
-                scroll = max(0, scroll - max(1, height - 6))
-            if key not in (10, 13, curses.KEY_ENTER) or pending or height < 8 or width < 28:
+            if key == -1:
                 continue
-            action = actions[selected][0]
+            if key == ord('q'):
+                break
+            if key == curses.KEY_RESIZE:
+                continue
+            if height < 8 or width < 28:
+                continue
+            notice = ''
+            if key == ord('?'):
+                help_open, scroll = not help_open, 0
+                continue
+            if key in (ord('b'), curses.KEY_LEFT, 27):
+                if help_open:
+                    help_open, scroll = False, 0
+                elif results_focus:
+                    results_focus = False
+                elif query:
+                    query, menu_scroll = '', 0
+                continue
+            if key in (9, curses.KEY_RIGHT):
+                help_open = False
+                results_focus = not results_focus if key == 9 else True
+                continue
+            if key in (ord('['), ord(']')) and not help_open:
+                history.move(-1 if key == ord('[') else 1)
+                scroll, results_focus = 0, True
+                continue
+            if key == ord('/') and not help_open:
+                answer = prompt(screen, 'Find tools (empty shows all)', query)
+                if answer is not None:
+                    query, menu_scroll, results_focus = answer, 0, False
+                continue
+            if key in (curses.KEY_NPAGE, curses.KEY_PPAGE):
+                scroll = max(0, scroll + (visible if key == curses.KEY_NPAGE else -visible))
+                if not wide:
+                    results_focus = True
+                continue
+            if key in (curses.KEY_UP, curses.KEY_DOWN, ord('j'), ord('k'), curses.KEY_HOME, curses.KEY_END):
+                backward = key in (curses.KEY_UP, ord('k'), curses.KEY_HOME)
+                if results_focus or help_open:
+                    if key in (curses.KEY_HOME, curses.KEY_END):
+                        scroll = 0 if backward else max(0, len(lines) - visible)
+                    else:
+                        scroll = max(0, scroll + (-1 if backward else 1))
+                elif choices:
+                    if key in (curses.KEY_HOME, curses.KEY_END):
+                        selected = choices[0 if backward else -1]
+                    else:
+                        selected = choices[(choices.index(selected) + (-1 if backward else 1)) % len(choices)]
+                continue
+            if key not in (10, 13, curses.KEY_ENTER) or help_open or results_focus or not choices:
+                continue
+            if pending:
+                notice = 'A tool is running. Browse results while it finishes.'
+                continue
+            action = tools[selected][1]
+            title = action
             try:
                 operation, args = None, ()
                 if action == 'Network overview':
                     operation = status
                 elif action in ('DNS lookup', 'Ping host', 'TCP connection', 'Send UDP packet'):
-                    target = prompt(screen, 'Host: ')
-                    if not target:
-                        continue
-                    host(target)
+                    target = ask('Hostname or IP address', 'host', validate=host)
+                    title += f' / {target}'
                     if action == 'DNS lookup':
                         operation, args = dns, (target,)
                     elif action == 'Ping host':
                         operation, args = run, (['ping', '-c', '3', '-W', '2', '--', target],)
                     else:
-                        number = prompt(screen, 'Port: ')
-                        if not number:
-                            continue
-                        port(number)
+                        number = ask('TCP port' if action == 'TCP connection' else 'UDP port',
+                                     'tcp_port' if action == 'TCP connection' else 'udp_port',
+                                     '443' if action == 'TCP connection' else '55555', port)
+                        title += f':{number}'
                         if action == 'TCP connection':
                             operation, args = tcp, (target, number)
                         else:
-                            message = prompt(screen, 'Message: ')
+                            message = ask('Message (up to 4096 bytes)', 'message', 'hello from Underlight')
                             operation, args = udp_send, (target, number, message)
                 elif action == 'Receive UDP packet':
-                    number = prompt(screen, 'UDP port [55555]: ') or '55555'
-                    port(number)
+                    number = ask('UDP port', 'udp_port', '55555', port)
+                    title += f' / :{number}'
                     operation, args = udp_listen, (number,)
                 elif action == 'SSH session':
-                    target = prompt(screen, 'SSH [user@]host: ')
-                    if target:
-                        host(target)
-                        interactive(screen, ['ssh', '--', target])
+                    target = ask('SSH [user@]host', 'ssh_host', validate=host)
+                    interactive(screen, ['ssh', '--', target])
+                    notice = 'Returned from SSH.'
                     continue
                 elif action in ('NAT rule preview', 'Start NAT (root)'):
-                    uplink = prompt(screen, 'Uplink: ')
-                    downlink = prompt(screen, 'Downlink: ')
-                    subnet = prompt(screen, 'Downstream CIDR: ')
-                    if not all((uplink, downlink, subnet)):
-                        continue
+                    uplink = ask('Uplink interface', 'uplink', validate=required)
+                    downlink = ask('Downlink interface', 'downlink', validate=required)
+                    subnet = ask('Downstream CIDR', 'subnet', validate=required)
                     command = 'nat-plan' if action == 'NAT rule preview' else 'nat-start'
                     operation, args = run, (['underlight-net-admin', command, uplink, downlink, subnet], 90)
                 elif action == 'Stop NAT (root)':
@@ -290,13 +623,16 @@ def tui(screen):
                     command = 'studio' if action == 'Android Studio' else 'emulator'
                     subprocess.Popen(['underlight-android', command], stdout=subprocess.DEVNULL,
                                      stderr=subprocess.DEVNULL, start_new_session=True)
-                    output = f'Launched {action}.'
+                    history.add(title, f'Launch requested for {action}.')
                 if operation:
+                    running = history.add(title, f'Running {action}...\n\nYou can browse tools and earlier results while this finishes.', 'Running')
                     pending = executor.submit(operation, *args)
-                    output = f'Running {action}...'
-                scroll, result_page = 0, True
+                scroll, results_focus = 0, True
+            except InputCancelled:
+                notice = 'Cancelled. Nothing was run.'
             except (OSError, ValueError) as error:
-                output, result_page = str(error), True
+                history.add(title, str(error), 'Error')
+                scroll, results_focus = 0, True
     finally:
         executor.shutdown(wait=False, cancel_futures=True)
 

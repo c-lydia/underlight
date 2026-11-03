@@ -1,0 +1,73 @@
+/* Underlight PDF layout. Normal editor and reading-view styling is unchanged. */
+/* Better Export PDF engine 2 previews a .print subtree in the dark window.
+   Scope the light code palette to that subtree as well as actual print media. */
+.print .markdown-rendered,
+.print.markdown-rendered {
+  --code-normal: #1f2330;
+  --code-comment: #6b7280;
+  --code-keyword: #8b3fa8;
+  --code-function: #1f5fa8;
+  --code-string: #2f7d4f;
+  --code-value: #b45309;
+  --code-important: #c2410c;
+  --code-operator: #0b6e7f;
+  --code-property: #0f6b7d;
+  --code-punctuation: #444a5a;
+  --code-tag: #b02a37;
+  --code-background: #f6f7f9;
+  --code-border-color: #d7dbe3;
+}
+
+.print .markdown-rendered pre,
+.print .markdown-rendered code {
+  background-color: var(--code-background);
+  color: var(--code-normal);
+}
+
+.print .markdown-rendered pre code {
+  background-color: transparent;
+}
+
+@media print {
+  .markdown-rendered img {
+    max-height: 230mm !important;
+    width: auto;
+    object-fit: contain;
+    break-inside: avoid;
+  }
+
+  .markdown-rendered .image-embed,
+  .markdown-rendered .math-block {
+    break-inside: avoid;
+  }
+
+  .markdown-rendered h1,
+  .markdown-rendered h2,
+  .markdown-rendered h3,
+  .markdown-rendered h4 {
+    break-after: avoid;
+  }
+
+  /* Both exporters use a light print surface, even in a dark vault. */
+  .markdown-rendered,
+  .markdown-preview-view {
+    --code-normal: #1f2330;
+    --code-comment: #6b7280;
+    --code-keyword: #8b3fa8;
+    --code-function: #1f5fa8;
+    --code-string: #2f7d4f;
+    --code-value: #b45309;
+    --code-important: #c2410c;
+    --code-operator: #0b6e7f;
+    --code-property: #0f6b7d;
+    --code-punctuation: #444a5a;
+    --code-tag: #b02a37;
+    --code-background: #f6f7f9;
+    --code-border-color: #d7dbe3;
+  }
+
+  pre, code, .token {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

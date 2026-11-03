@@ -9,6 +9,11 @@ from unittest.mock import Mock, patch
 
 
 class HttpTests(unittest.TestCase):
+    def setUp(self):
+        policy = patch.dict(os.environ, {'UNDERLIGHT_PRIVACY': 'local-answer'})
+        policy.start()
+        self.addCleanup(policy.stop)
+
     @classmethod
     def setUpClass(cls):
         with patch.dict(os.environ, {"RAG_CONFIG": str(Path(__file__).with_name(".ragconfig.example.yaml"))}):
@@ -40,6 +45,19 @@ class HttpTests(unittest.TestCase):
         for length, status in [("-1", 400), ("invalid", 400), (str(2**30), 413)]:
             with self.subTest(length=length):
                 self.assertEqual(self.request({}, headers={"Content-Length": length})[0], status)
+
+    def test_privacy_blocks_local_exports_and_redacts_answer_mode_chunks(self):
+        with patch.dict(os.environ, {'UNDERLIGHT_PRIVACY': 'local'}), patch.object(self.server, 'retrieve') as retrieve:
+            self.assertEqual(self.request({'query': 'q'})[0], 403)
+            retrieve.assert_not_called()
+        with patch.object(self.server, 'retrieve', return_value=[{'text': 'private raw chunk', 'path': 'note.md', 'score': 1.0}]), \
+                patch.object(self.server, 'ask_ollama', return_value='answer'):
+            status, body = self.request({'query': 'q'})
+            self.assertEqual(status, 200)
+            self.assertEqual(body['chunks'], [])
+            self.assertNotIn('private raw chunk', json.dumps(body))
+            with patch.dict(os.environ, {'UNDERLIGHT_PRIVACY': 'cloud-context'}):
+                self.assertEqual(self.request({'query': 'q'})[1]['chunks'][0]['text'], 'private raw chunk')
 
     def test_log_failure_is_not_reported_as_success(self):
         with patch.object(self.server, "log_chat", return_value={"error": "disk full"}):

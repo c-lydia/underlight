@@ -5,7 +5,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -23,6 +23,84 @@ admin = load('admin', 'underlight-net-admin')
 
 
 class TerminalTests(unittest.TestCase):
+    def test_tui_filter_run_history_help_and_cancel_without_network(self):
+        class Screen:
+            def __init__(self):
+                self.rows, self.frames = {}, []
+                self.keys = iter([ord('/'), 10, 9, 10, ord('['), ord('?'), ord('?'),
+                                  27, ord('/'), 10, ord('q')])
+                self.input = iter([*'overview', '\n', '\x15', *'dns', '\n', '\x1b'])
+
+            def getmaxyx(self): return (24, 80)
+            def erase(self): self.rows = {}
+            def addstr(self, y, x, text, attr): self.rows[y, x] = text
+            def refresh(self): self.frames.append('\n'.join(self.rows.values()))
+            def getch(self): return next(self.keys)
+            def get_wch(self): return next(self.input)
+            def move(self, *args): pass
+            def clrtoeol(self): pass
+            def timeout(self, value): pass
+            def keypad(self, value): pass
+
+        class Executor:
+            def __init__(self, **kwargs): pass
+            def submit(self, operation, *args):
+                future = lab.concurrent.futures.Future()
+                future.set_result(operation(*args))
+                return future
+            def shutdown(self, **kwargs): pass
+
+        screen = Screen()
+        with patch.object(lab.curses, 'curs_set'), patch.object(lab.curses, 'noecho'), \
+             patch.object(lab.curses, 'has_colors', return_value=False), \
+             patch.object(lab.concurrent.futures, 'ThreadPoolExecutor', Executor), \
+             patch.object(lab, 'status', side_effect=['FIRST SNAPSHOT', 'SECOND SNAPSHOT']) as overview, \
+             patch.object(lab, 'dns') as lookup:
+            lab.tui(screen)
+        self.assertEqual(overview.call_count, 2)
+        lookup.assert_not_called()
+        self.assertTrue(any('KEYBOARD GUIDE' in frame for frame in screen.frames))
+        self.assertTrue(any('FIRST SNAPSHOT' in frame and '1/2' in frame for frame in screen.frames))
+        self.assertIn('Cancelled. Nothing was run.', screen.frames[-1])
+
+    def test_editable_prompt_validates_and_escape_cancels(self):
+        screen = Mock()
+        screen.getmaxyx.return_value = (24, 28)
+        with patch.object(lab.curses, 'noecho'), patch.object(lab.curses, 'curs_set'):
+            screen.get_wch.side_effect = ['\x1b']
+            self.assertIsNone(lab.prompt(screen, 'Port', '55555', lab.port))
+            screen.get_wch.side_effect = ['\x15', '0', '\n', '\x15', '4', '4', '3', '\n']
+            self.assertEqual(lab.prompt(screen, 'Port', '55555', lab.port), '443')
+            rendered = ' '.join(str(call) for call in screen.addstr.call_args_list)
+            self.assertIn('Port must be between', rendered)
+            screen.get_wch.side_effect = [lab.curses.KEY_END, lab.curses.KEY_BACKSPACE, 'x', '\n']
+            self.assertEqual(lab.prompt(screen, 'Host', 'long-' * 20 + 'a'), 'long-' * 20 + 'x')
+
+    def test_filter_history_and_terminal_cell_wrapping(self):
+        tools = [('Inspect', 'Network overview', 'addresses'), ('Diagnose', 'DNS lookup', 'resolver')]
+        self.assertEqual(lab.tool_rows(tools, 'RESOLVER'), [(None, 'DIAGNOSE'), (1, 'DNS lookup')])
+        self.assertEqual(lab.tool_rows(tools, 'no-match'), [])
+        history = lab.History()
+        history.add('Old', 'old result')
+        running = history.add('DNS', 'pending', 'Running')
+        history.move(-1)
+        running.update(text='resolved', state='Finished')
+        self.assertEqual(history.current['text'], 'old result')
+        history.move(1)
+        self.assertEqual(history.current['text'], 'resolved')
+        for index in range(25):
+            history.add(str(index), 'output')
+        self.assertEqual(len(history.entries), 20)
+        self.assertEqual(history.current['title'], '24')
+        self.assertEqual(lab.fit('界a界', 3), '界a')
+        self.assertEqual(lab.wrapped('界a界\n  indented', 3), ['界a', '界', '  i', 'nde', 'nte', 'd'])
+
+    @patch.object(lab, 'run', return_value='connection result')
+    def test_tcp_bounds_dns_and_connection_together(self, command):
+        self.assertEqual(lab.tcp('example.test', '443'), 'connection result')
+        self.assertEqual(command.call_args.args[1], 6)
+        self.assertEqual(command.call_args.args[0][-2:], ['example.test', '443'])
+
     def test_phone_and_desktop_layouts(self):
         self.assertFalse(lab.layout(24, 40))
         self.assertFalse(lab.layout(10, 120))
@@ -119,7 +197,7 @@ class TerminalTests(unittest.TestCase):
         import struct
         import termios
         import time
-        for height, width in ((24, 40), (30, 120), (6, 20)):
+        for height, width in ((24, 40), (30, 120), (8, 28), (6, 20)):
             master, slave = pty.openpty()
             process = None
             try:
@@ -131,9 +209,9 @@ class TerminalTests(unittest.TestCase):
                 while time.monotonic() < deadline:
                     if select.select([master], [], [], 0.1)[0]:
                         output += os.read(master, 65536)
-                        if b'NETWORK LAB' in output or b'Resize to' in output:
+                        if b'Network lab' in output or b'Resize to' in output:
                             break
-                self.assertTrue(b'NETWORK LAB' in output or b'Resize to' in output, output)
+                self.assertTrue(b'Network lab' in output or b'Resize to' in output, output)
                 fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 24, 80, 0, 0))
                 process.send_signal(signal.SIGWINCH)
                 os.write(master, b'jq')

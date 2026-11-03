@@ -4,6 +4,11 @@ This file tracks useful additions that should remain portable, reversible, and
 safe to keep in Git. Generated data, credentials, model files, and machine-only
 state do not belong in this repository.
 
+Implemented workflow foundations are documented in [WORKFLOWS.md](docs/WORKFLOWS.md):
+bounded configuration snapshots, shortcut search, persistent project sessions,
+RAG privacy modes, quick capture and local machine profiles. Broader snapshot
+coverage, package manifests and encrypted secret migration remain future work.
+
 ## Priority 1: reliability and recovery
 
 ### Unified doctor command

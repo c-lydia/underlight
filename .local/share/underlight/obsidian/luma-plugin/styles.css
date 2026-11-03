@@ -20,3 +20,4 @@
 .underlight-luma-choice{background:rgba(184,213,240,.07)!important;border-color:rgba(215,239,255,.1)!important}
 .underlight-luma-choice:hover,.underlight-luma-choice[aria-pressed=true]{background:rgba(115,208,232,.19)!important;border-color:rgba(170,233,253,.5)!important}
 .underlight-luma-controls button{background:rgba(184,213,240,.09)!important}
+.underlight-luma-panel select{width:100%;height:auto;white-space:normal;margin:0 0 10px;padding:8px;border:1px solid rgba(170,233,253,.5);border-radius:10px;background:#252d45;color:#e2eaff}

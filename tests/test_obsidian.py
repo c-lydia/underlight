@@ -102,6 +102,55 @@ class ObsidianSetupTests(unittest.TestCase):
         self.assertIn("canvas", self.read("core-plugins"))
         self.assertEqual(self.read("hotkeys")["daily-notes"], [])
 
+    def prepare_pdf_export(self):
+        plugin = self.vault / '.obsidian/plugins/better-export-pdf'
+        plugin.mkdir(parents=True)
+        self.write('plugins/better-export-pdf/manifest', {'id': 'better-export-pdf', 'version': '2.0.3'})
+        pairs = json.loads((ROOT / '.local/share/underlight/obsidian/better-export-pdf-2.0.3.json').read_text())
+        script = plugin / 'main.js'
+        script.write_text('\n'.join(before for before, after in pairs))
+        return script
+
+    def test_pdf_repair_preserves_theme_is_idempotent_and_reversible(self):
+        script = self.prepare_pdf_export()
+        original = script.read_bytes()
+        theme = self.vault / '.obsidian/snippets/underlight.css'
+        theme.parent.mkdir()
+        theme.write_text('/* user additions */')
+        self.run_helper(self.vault, '--repair-pdf-export')
+        self.run_helper(self.vault, '--repair-pdf-export')
+        self.assertEqual(len(self.backups()), 1)
+        self.assertEqual(theme.read_text(), '/* user additions */')
+        self.assertEqual(self.read('appearance')['enabledCssSnippets'], ['my-style', 'underlight-pdf'])
+        self.assertEqual(self.read('appearance')['cssTheme'], 'My theme')
+        self.assertEqual(script.read_text().count('async function underlightPreparePdf('), 1)
+        self.run_helper('--restore', self.backups()[0].parent)
+        self.assertEqual(script.read_bytes(), original)
+        self.assertEqual(self.read('appearance')['enabledCssSnippets'], ['my-style'])
+        self.assertFalse((theme.parent / 'underlight-pdf.css').exists())
+
+    def test_pdf_repair_refuses_unknown_version_or_changed_bundle_without_writes(self):
+        script = self.prepare_pdf_export()
+        original = script.read_bytes()
+        self.write('plugins/better-export-pdf/manifest', {'id': 'better-export-pdf', 'version': '2.0.4'})
+        self.run_helper(self.vault, '--repair-pdf-export', success=False)
+        self.assertEqual(script.read_bytes(), original)
+        self.write('plugins/better-export-pdf/manifest', {'id': 'better-export-pdf', 'version': '2.0.3'})
+        script.write_text('unknown bundle')
+        self.run_helper(self.vault, '--repair-pdf-export', success=False)
+        self.assertEqual(script.read_text(), 'unknown bundle')
+        self.assertEqual(self.backups(), [])
+        self.assertEqual(self.read('appearance')['enabledCssSnippets'], ['my-style'])
+
+    def test_pdf_repair_survives_appearance_reapply(self):
+        script = self.prepare_pdf_export()
+        self.run_helper(self.vault, '--repair-pdf-export')
+        repaired = script.read_bytes()
+        self.run_helper(self.vault)
+        self.assertEqual(script.read_bytes(), repaired)
+        self.assertIn('underlight-pdf', self.read('appearance')['enabledCssSnippets'])
+        self.assertTrue((self.vault / '.obsidian/snippets/underlight-pdf.css').exists())
+
     def prepare_ai(self):
         for plugin in ("copilot", "github-copilot"):
             (self.vault / ".obsidian/plugins" / plugin).mkdir(parents=True)

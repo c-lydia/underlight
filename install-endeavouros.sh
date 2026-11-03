@@ -6,16 +6,21 @@ repo_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 with_ai=false
 with_rag=false
 with_android=false
+print_packages=false
 
 usage() {
   printf '%s\n' \
-    'Usage: ./install-endeavouros.sh [--with-ai] [--with-rag] [--with-android]' \
+    'Usage: ./install-endeavouros.sh [--with-ai] [--with-rag] [--with-android] [--print-packages]' \
     '' \
     'Default: install Underlight, the Neovim workbench, and give_laptop_ac.' \
+    'Includes snapshots, shortcut search, project workspaces, privacy controls,' \
+    'Obsidian quick capture, and machine profiles.' \
     '  --with-android  Install Android/Flutter prerequisites and the Flutter SDK.' \
     '  --with-ai   Also install Ollama and OpenCode; no models are downloaded.' \
     '  --with-rag  Also install the RAG pipeline and its Python environment.' \
-    '              This implies --with-ai; indexes and models remain opt-in.'
+    '              This implies --with-ai; indexes and models remain opt-in.' \
+    '  --print-packages  List bootstrap packages and exit without changing anything.' \
+    '                    Works on other distributions; optional SDK/pip setup is separate.'
 }
 
 while (($# > 0)); do
@@ -23,11 +28,82 @@ while (($# > 0)); do
     --with-android) with_android=true ;;
     --with-ai) with_ai=true ;;
     --with-rag) with_rag=true; with_ai=true ;;
+    --print-packages) print_packages=true ;;
     -h|--help) usage; exit 0 ;;
     *) printf 'Unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
   esac
   shift
 done
+
+packages=(
+  base-devel
+  brightnessctl
+  cliphist
+  cmake
+  coreutils
+  curl
+  fd
+  firefox
+  git
+  grim
+  gtk-layer-shell
+  gtk3
+  hypridle
+  hyprland
+  hyprpaper
+  hyprpolkitagent
+  iproute2
+  iputils
+  jq
+  kitty
+  libnotify
+  mako
+  mesa-utils
+  nautilus
+  ncurses
+  networkmanager
+  network-manager-applet
+  neovim
+  ninja
+  nodejs
+  noto-fonts
+  noto-fonts-emoji
+  openssh
+  pavucontrol
+  pipewire
+  playerctl
+  power-profiles-daemon
+  python
+  python-cairo
+  python-gobject
+  python-pip
+  python-psutil
+  python-yaml
+  ripgrep
+  screen
+  slurp
+  switcheroo-control
+  tmux
+  ttf-font-awesome
+  udisks2
+  unzip
+  waybar
+  wireplumber
+  wl-clipboard
+  wofi
+  xdg-desktop-portal-gtk
+  xdg-desktop-portal-hyprland
+  xdg-utils
+)
+
+if [[ $with_ai == true ]]; then
+  packages+=(ollama opencode)
+fi
+
+if [[ $print_packages == true ]]; then
+  printf '%s\n' "${packages[@]}"
+  exit 0
+fi
 
 if ((EUID == 0)); then
   printf 'Run this installer as your normal desktop user, not as root.\n' >&2
@@ -54,63 +130,6 @@ command -v pacman >/dev/null 2>&1 || {
   printf 'pacman is required but was not found.\n' >&2
   exit 1
 }
-
-packages=(
-  base-devel
-  brightnessctl
-  cliphist
-  cmake
-  curl
-  fd
-  firefox
-  git
-  grim
-  gtk-layer-shell
-  gtk3
-  hypridle
-  hyprland
-  hyprpaper
-  hyprpolkitagent
-  jq
-  kitty
-  libnotify
-  mako
-  mesa-utils
-  nautilus
-  networkmanager
-  network-manager-applet
-  neovim
-  ninja
-  nodejs
-  noto-fonts
-  noto-fonts-emoji
-  pavucontrol
-  pipewire
-  playerctl
-  power-profiles-daemon
-  python
-  python-cairo
-  python-gobject
-  python-pip
-  python-psutil
-  ripgrep
-  screen
-  slurp
-  switcheroo-control
-  ttf-font-awesome
-  udisks2
-  unzip
-  waybar
-  wireplumber
-  wl-clipboard
-  wofi
-  xdg-desktop-portal-gtk
-  xdg-desktop-portal-hyprland
-)
-
-if [[ $with_ai == true ]]; then
-  packages+=(ollama opencode)
-fi
 
 printf 'Installing Underlight desktop dependencies with pacman...\n'
 sudo pacman -Syu --needed "${packages[@]}"
@@ -144,9 +163,9 @@ fi
 
 printf '\nLinking the Underlight configuration into %s...\n' "${HOME:?}"
 if [[ $with_rag == true ]]; then
-  UNDERLIGHT_WITH_RAG=1 "$repo_dir/install.sh"
+  UNDERLIGHT_PROFILE=desktop UNDERLIGHT_WITH_RAG=1 "$repo_dir/install.sh"
 else
-  "$repo_dir/install.sh"
+  UNDERLIGHT_PROFILE=desktop "$repo_dir/install.sh"
 fi
 
 if [[ $with_android == true ]]; then
@@ -176,6 +195,14 @@ printf '%s\n' \
   'Log out, choose the Hyprland session in your login screen, and log back in.' \
   'From a TTY without a display manager, run: start-hyprland' \
   'System actions: Super+X' \
+  'Shortcut search: Super+/; project workspaces: Super+Alt+W; Obsidian capture: Super+Alt+N' \
+  'Snapshots: underlight-snapshot --help; machine profiles: underlight-machine --help' \
+  'AI privacy defaults to local. Change it explicitly with underlight-privacy menu.' \
+  'Quick capture setup: underlight-capture setup /path/to/vault' \
+  'All six workflows and first-use setup: docs/WORKFLOWS.md' \
+  'Network lab: underlight-tui (or Super+X -> Network lab)' \
+  'AI companion: underlight-luma --show; install and sign in to your chosen AI clients separately.' \
+  'Obsidian integrations and feature setup: docs/OBSIDIAN.md and docs/FEATURES.md' \
   'Next/previous desktop: Super+Tab / Super+Shift+Tab' \
   'Jump to desktop: Super+1..0; move a window: Super+Shift+1..0' \
   'After login, run underlight-doctor to check the setup.'

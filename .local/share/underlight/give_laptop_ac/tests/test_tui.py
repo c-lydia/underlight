@@ -299,10 +299,11 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(app.query_one("#dash-details", Collapsible).collapsed)
             self.assertIn("25%", str(app.query_one("#overview-cpu .overview-value").content))
             self.assertIn("55°C", str(app.query_one("#overview-cpu .overview-detail").content))
-            for size, columns in (((80, 24), 2), ((120, 40), 4), ((50, 24), 1)):
+            for size, columns in (((80, 24), 2), ((120, 40), 4), ((120, 24), 4), ((50, 24), 1)):
                 await pilot.resize_terminal(*size)
                 await pilot.pause()
                 cards = list(app.query(main.OverviewCard))
+                self.assertTrue(all(card.region.height == 5 for card in cards))
                 self.assertEqual(len({card.region.x for card in cards}), columns)
                 viewport = app.query_one("#dash-scroll").region
                 self.assertTrue(all(card.region.right <= viewport.right for card in cards))
@@ -313,6 +314,34 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(app.query_one("#dash-details", Collapsible).collapsed)
             await pilot.press("v")
             self.assertTrue(app.query_one("#dash-details", Collapsible).collapsed)
+
+    async def test_temperature_states_missing_readings_and_narrow_charts(self):
+        app = main.GiveLaptopAC()
+        async with app.run_test(size=(50, 24)) as pilot:
+            await pilot.pause()
+            cpu = app.query_one('#overview-cpu', main.OverviewCard)
+            gpu = app.query_one('#overview-gpu', main.OverviewCard)
+            self.assertTrue(gpu.has_class('unavailable'))
+            self.assertIn('N/A', str(gpu.query_one('.overview-title').content))
+            self.sample.values['cpu_temp'] = self.settings.alerts.cpu_crit
+            app._tick()
+            self.assertTrue(cpu.has_class('critical'))
+            self.assertIn('HOT', str(cpu.query_one('.overview-title').content))
+            self.assertTrue(app.query_one('#status').has_class('critical'))
+            self.sample.values['cpu_temp'] = 50
+            app._status_until = 0
+            app._tick()
+            self.assertFalse(cpu.has_class('critical'))
+            self.assertFalse(app.query_one('#status').has_class('critical'))
+            await pilot.press('v')
+            await pilot.pause()
+            cards = list(app.query('#row1 SparkCard'))
+            self.assertEqual(len({card.region.x for card in cards}), 1)
+            self.assertEqual(len({card.region.y for card in cards}), len(cards))
+            # A refresh already queued during teardown must not touch removed widgets.
+            await app.query_one('#overview-grid').remove()
+            app._tick()
+
 
 
 if __name__ == "__main__":

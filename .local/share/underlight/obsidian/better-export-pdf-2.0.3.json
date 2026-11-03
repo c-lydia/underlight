@@ -1,0 +1,26 @@
+[
+  [
+    "yo(f);let b=document.implementation.createHTMLDocument",
+    "await underlightPreparePdf(f),yo(f);let b=document.implementation.createHTMLDocument"
+  ],
+  [
+    "await Promise.all(o),i.findAll",
+    "await Promise.all(o),await underlightPreparePdf(i),i.findAll"
+  ],
+  [
+    "async function So(e,t){let n=e.win.electron.ipcRenderer;",
+    "async function So(e,t){await underlightPreparePdf(e);let n=e.win.electron.ipcRenderer;"
+  ],
+  [
+    "ro().forEach(async t=>{await e.insertCSS(t)})",
+    "await Promise.all(ro().map(t=>e.insertCSS(t)))"
+  ],
+  [
+    "ao().forEach(async t=>{await e.insertCSS(t)})",
+    "await Promise.all(ao().map(t=>e.insertCSS(t)))"
+  ],
+  [
+    "try{let o=await n.printToPDF(a);",
+    "try{await n.executeJavaScript(\"(\"+underlightWaitForPdfAssets.toString()+\")()\" );let o=await n.printToPDF(a);"
+  ]
+]

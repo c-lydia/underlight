@@ -196,7 +196,12 @@ These commands are the best starting points when tracing behavior:
 | `underlight-profile` | Select a power profile, optionally for one command |
 | `underlight-gpu-run` | Launch one program on the discrete GPU |
 | `underlight-gpu-menu` | GPU, compute, AI, profile, and diagnostic menu |
-| `underlight-ai` | Launch/status wrapper for Ollama, OpenCode, and Hermes |
+| `underlight-ai` | Launch/status wrapper for the installed local and account-backed AI clients |
+| `underlight-luma` | Show/hide the shared desktop AI companion and launcher |
+| `underlight-tui` | Searchable network tools, editable inputs and session result history |
+| `underlight-net-admin` | Preview/apply/remove scoped IPv4 NAT rules with real kernel privileges |
+| `underlight-android` | Studio, Flutter, SDK, ADB and emulator entry points |
+| `underlight-obsidian` | Backed-up vault styling, AI bridges, Luma and guarded plugin repairs |
 | `underlight-laptop` | Launch the laptop dashboard |
 | `underlight-rag` | Launch the optional indexer, assistant, chat, or server |
 | `nvim-workspace` | Remember/open a project-centered development layout |
@@ -205,6 +210,20 @@ These commands are the best starting points when tracing behavior:
 Use `underlight-doctor` when the desktop mostly works but an integration does
 not. It reports hard failures separately from optional missing components and
 recognizes when a sandbox simply cannot see host GPU devices.
+
+The [feature guide](docs/FEATURES.md) connects these entry points to setup and
+upgrade instructions on Ubuntu and EndeavourOS. The network lab runs without a
+graphical session; Luma's desktop avatar and the laptop dashboard are desktop
+integrations. Luma opens existing AI clients, so its presence does not imply
+that every client is installed or signed in. Its desktop and Obsidian versions
+share appearance preferences but open chats through different clients. Use the
+[Luma troubleshooting guide](docs/OBSIDIAN.md#luma-visibility-and-launch-feedback)
+when a launcher reports a missing program, working folder or plugin.
+
+The wallpaper is also supervised by `underlight-wallpaper.service`, with logs
+available through `journalctl --user -u underlight-wallpaper.service -b`.
+Updating the checkout changes linked helper code; already-running apps must
+restart to load new code, and copied vault plugins must be reapplied.
 
 ## 7. Phone hotspot, routing, and NAT
 

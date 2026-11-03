@@ -4,8 +4,17 @@ Full-hardware TUI for MSI Cyborg 15 A12U (and compatible MSI laptops with `msi-e
 
 ## Features
 
+The dashboard follows Underlight and the portfolio's palette: dark violet
+surfaces, pale blue text, cyan and lavender accents. Compact, borderless overview
+cards keep readings at normal text size, with color reserved for emphasis.
+Overview, Controls and Processes share the same navigation and footer style.
+The dashboard keeps terminal transparency around its cards.
+
 ### Dashboard (Tab 1)
 - Compact CPU, GPU, memory, and battery overview, adapting to terminal width
+- Last-refresh timestamp, explicit unavailable labels, and full-reading tooltips
+- WARM/HOT card states driven by the configured CPU/GPU warning thresholds
+- Detailed sensor rows stack vertically in narrow terminals
 - Current firmware mode, cooling mode, and control-service connection at a glance
 - Press `v` for the full colored sensor charts; CPU cores expand separately
 - Real-time CPU/GPU temps with sparkline history
@@ -108,6 +117,9 @@ shows these steps. Battery and keyboard controls still use direct sysfs permissi
 | `v` | Expand/collapse dashboard sensor charts |
 
 The letter shortcuts work even when a button or the tab bar has focus.
+The same dashboard is bundled on Ubuntu and EndeavourOS. Close and reopen it
+after updating Underlight. UI refreshes also tolerate teardown so a queued
+sensor/process timer cannot access removed widgets on exit.
 
 ## Configuration
 

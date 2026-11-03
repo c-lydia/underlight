@@ -184,6 +184,10 @@ install_ssh_defaults
 link_item .local/bin/underlight-tui
 link_item .local/bin/underlight-net-admin
 link_item .local/bin/underlight-network
+link_item .local/share/underlight/workflows
+for workflow in snapshot shortcuts project privacy capture machine; do
+  link_item ".local/bin/underlight-$workflow"
+done
 
 if [[ $profile == desktop ]]; then
 install_persistence_dependency

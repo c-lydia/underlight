@@ -79,7 +79,9 @@ is simply removed.
 
 The EndeavourOS bootstrap adds machine provisioning around `install.sh`:
 
-- Parses `--with-ai` and `--with-rag`; RAG implies AI.
+- Parses `--with-ai`, `--with-rag`, and `--with-android`; RAG implies AI.
+- Installs the network clients/curses and Python YAML required by the shared
+  network lab and Obsidian AI configuration helpers.
 - Refuses root execution and verifies an Arch-family `/etc/os-release` plus
   `pacman`.
 - Installs the Hyprland desktop, Wayland utilities, fonts, build tools, Python
@@ -278,8 +280,8 @@ the live config directory.
   performance/AI mode also routes that command through discrete-GPU offload.
 - `.local/bin/underlight-gpu-menu` is the Wofi dispatcher for AI tools, an
   arbitrary NVIDIA command, the dashboard, diagnostics, or power profiles.
-- `.local/bin/underlight-ai` provides `menu`, `status`, `opencode`, `hermes`, and
-  `ollama`. It detects installed tools, checks the Hermes gateway PID, selects
+- `.local/bin/underlight-ai` provides `menu`, `status`, `opencode`, `zen`,
+  `hermes`, `copilot`, `cursor`, `antigravity`, `ollama`, and `rag`. It detects installed tools, checks the Hermes gateway PID, selects
   Ollama models with Wofi, switches interactive workloads to the AI profile,
   and launches each tool in a correctly titled/classed Kitty window. It does
   not edit provider or credential configuration.
@@ -318,6 +320,60 @@ environment, and config all exist. It maps friendly subcommands to the Python
 programs: `ask` uses retrieval, `direct` calls Ollama without retrieval, `chat`
 manages history, `index` builds tables, `server` starts HTTP, and `opencode`
 starts the companion tool with the RAG environment on `PATH`.
+
+### Network lab and terminal profile
+
+`.local/bin/underlight-tui` uses only Python's standard library. `available_tools`
+detects platform integrations; `tool_rows` groups and filters the menu. The
+curses loop separates tool selection from result focus, keeps 20 in-memory
+results through `History`, and polls one worker future without blocking input.
+Each running result retains its own entry even when the user browses history.
+`prompt` supports editing, validation, cancellation and terminal resizing;
+`fit` clips output by terminal cells so wide characters stay within panes.
+DNS/TCP checks use timeout-bound child processes, including DNS resolution.
+SSH and network settings temporarily leave curses through `interactive`.
+
+`install-terminal.sh` requests the main installer's minimal profile, linking
+only the lab, `underlight-network`, `underlight-net-admin`, and SSH defaults.
+It can install terminal dependencies without bringing in desktop or AI tools.
+The NAT helper records its own rule inverses and checks actual capabilities;
+see [the network guide](docs/TERMINAL.md) for behavior and constraints.
+
+### Luma and Obsidian integration
+
+`.local/bin/underlight-luma` creates a GTK layer-shell avatar and scrollable
+launcher. `launch_command` resolves and validates the working folder;
+`LaunchJob` captures launcher output in a temporary file. The GTK timer polls
+exit status and displays errors without blocking the UI. It does not interpret
+successful process creation as proof the AI client opened. Avatar keys are
+handled separately from focused button activation.
+
+`.local/share/underlight/luma/agents.json` defines the seven launch choices;
+`avatar.png` supplies the shared artwork. The Obsidian plugin under
+`.local/share/underlight/obsidian/luma-plugin/` reads the same preferences and
+catalogue. It guards plugin API calls, verifies that a chat view was created,
+opens Agent Client chats in the right sidebar, and prevents duplicate pending
+launches. Neither runtime stores model credentials.
+
+`.local/bin/underlight-obsidian` applies per-vault styling, AI configuration,
+Luma plugin files and guarded plugin repairs. `safe_path` refuses paths that
+escape the vault through symlinks; `write_changes` records content hashes and
+backups for restore. `--ai`, host-agent flags, `--gpu-qwen`, `--luma`,
+`--repair-copilot-view`, and `--repair-notebooklm` are explicit opt-in workflows.
+The host bridges and their exact commands are listed in
+[the Obsidian guide](docs/OBSIDIAN.md#bridge-command-reference).
+
+### Android toolchains and wallpaper lifecycle
+
+`.local/bin/underlight-android` discovers Studio, the SDK, Flutter and Java,
+launches tools with the appropriate environment, and optionally installs setup
+prerequisites. `.config/underlight/android.sh`, `cuda.sh` and `toolchains.sh`
+provide reusable shell startup hooks. See [Android setup](docs/ANDROID.md).
+
+`.config/systemd/user/underlight-wallpaper.service` supervises Hyprpaper.
+Hyprland imports its Wayland environment before starting the service; an
+unexpected exit is restarted, while a missing display socket ends retries.
+The current wallpaper remains selected by the host's `hyprpaper.conf`.
 
 ## 6. GTK desktop widgets
 
@@ -432,6 +488,12 @@ and human-readable unavailability reasons. `TelemetrySampler`:
   and counters that still need a second sample.
 
 ### Reusable UI widgets: `dashboard.py`
+
+Overview cards use dashed unavailable states and text plus color for temperature
+warnings. Tooltips retain full readings, and the heading shows refresh time.
+Detailed chart rows stack on narrow terminals. Refresh callbacks check that
+their widgets still exist during shutdown, preventing a queued-timer crash.
+
 
 `reading()` formats a sensor or returns `N/A`. `OverviewCard` builds a title,
 headline, detail line, and sparkline. `update_reading()` updates all three,
@@ -721,6 +783,10 @@ choices.
 `tests/smoke.sh` syntax-checks the major Bash commands, verifies executable
 bits, validates Waybar JSON, installs into a temporary home, asserts important
 links, rolls back the latest transaction, and confirms the links disappeared.
+It also runs network-lab interaction tests, desktop Luma launcher regression
+tests (`test_luma.py`), and Obsidian Luma plugin-interface checks
+(`test_luma_plugin.js`, requiring Node). Desktop link/rollback coverage includes
+the shared Luma assets, host-agent bridges and wallpaper unit used by EndeavourOS.
 `.github/workflows/check.yml` runs this test for every push and pull request on
 Ubuntu.
 
@@ -761,6 +827,12 @@ tracked files are documentation, metadata, or assets:
 |---|---|
 | `README.md` | User-facing overview, install, and operation guide. |
 | `CODE_WALKTHROUGH.md` | Implementation guide you are reading. |
+| `UNDERSTANDING_UNDERLIGHT.md` | Beginner-oriented system and troubleshooting guide. |
+| `docs/FEATURES.md` | Current feature entry points and EndeavourOS upgrade/parity map. |
+| `docs/TERMINAL.md` | Network-lab interaction, terminal profile, phone and NAT setup. |
+| `docs/ANDROID.md` | Desktop Android/Flutter setup and commands. |
+| `docs/OBSIDIAN.md` | Vault configuration, AI bridges, repairs and Luma troubleshooting. |
+| `.local/share/underlight/luma/README.md` | Shared artwork and companion runtime locations. |
 | `LICENSE` | Apache License 2.0 for the repository. |
 | `.gitignore` | Ignores editor/AL artifacts plus Python bytecode and logs. |
 | `.github/workflows/check.yml` | CI entry point for the smoke test. |

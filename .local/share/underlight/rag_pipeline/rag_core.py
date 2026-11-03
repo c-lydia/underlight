@@ -65,15 +65,18 @@ class Embedder:
 
     def _embed_ollama(self, texts: list[str]) -> list[list[float]]:
         import requests
+        from privacy_policy import check_ollama
 
         base = self.settings.get("ollama_base_url", self.config["ollama"]["base_url"])
         model = self.settings["model"]
+        check_ollama(base, model)
         timeout = int(self.config["ollama"].get("timeout_s", 120))
         options = self.settings.get("ollama_options", {})
         response = requests.post(
             f"{base.rstrip('/')}/api/embed",
             json={"model": model, "input": texts, "options": options},
             timeout=timeout,
+            allow_redirects=False, proxies={'http': '', 'https': ''},
         )
         if response.status_code != 404:
             response.raise_for_status()
@@ -87,6 +90,7 @@ class Embedder:
                 f"{base.rstrip('/')}/api/embeddings",
                 json={"model": model, "prompt": text, "options": options},
                 timeout=timeout,
+                allow_redirects=False, proxies={'http': '', 'https': ''},
             )
             fallback.raise_for_status()
             vectors.append(fallback.json()["embedding"])

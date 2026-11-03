@@ -2,6 +2,47 @@
 
 set -uo pipefail
 
+usage() {
+  cat <<'EOF'
+Usage: underlight-doctor [--terminal | --help]
+
+Read-only checks for desktop configuration, services, GPU and developer tools.
+Suggested repairs are printed only; nothing is installed or restarted.
+
+  --terminal  Open the report in Kitty and wait for Enter before closing.
+  --help      Show this help without running checks.
+
+UNDERLIGHT_DOCTOR_TIMEOUT sets the per-probe limit in seconds (default: 5).
+Exit status: 0 = no failures (warnings allowed), 1 = failures, 2 = invalid usage.
+EOF
+}
+
+if (( $# > 1 )); then usage >&2; exit 2; fi
+case ${1:-} in
+  --help|-h) usage; exit 0 ;;
+  --terminal)
+    command -v kitty >/dev/null 2>&1 || { printf 'underlight-doctor: kitty is not installed\n' >&2; exit 1; }
+    exec kitty --class underlight-doctor --title 'Underlight doctor' sh -lc 'underlight-doctor; printf "\nPress Enter to close..."; read -r _'
+    ;;
+  '') ;;
+  *) usage >&2; exit 2 ;;
+esac
+
+probe_timeout=${UNDERLIGHT_DOCTOR_TIMEOUT:-5}
+if [[ ! $probe_timeout =~ ^[0-9]+([.][0-9]+)?$ || ! $probe_timeout =~ [1-9] ]]; then
+  printf 'underlight-doctor: UNDERLIGHT_DOCTOR_TIMEOUT must be a positive number of seconds\n' >&2
+  exit 2
+fi
+if ! command -v timeout >/dev/null 2>&1; then
+  printf 'underlight-doctor: install coreutils for bounded diagnostic probes (timeout)\n' >&2
+  exit 1
+fi
+
+probe() { timeout --kill-after=1s "${probe_timeout}s" "$@"; }
+timed_out() { [[ $1 == 124 || $1 == 137 ]]; }
+config_root=${XDG_CONFIG_HOME:-$HOME/.config}
+data_root=${XDG_DATA_HOME:-$HOME/.local/share}
+
 android_environment="${XDG_CONFIG_HOME:-$HOME/.config}/underlight/android.sh"
 if [[ -r $android_environment ]]; then
   # shellcheck disable=SC1090
@@ -13,7 +54,7 @@ warn=0
 fail=0
 
 result() {
-  local level=$1 label=$2 detail=${3:-}
+  local level=$1 label=$2 detail=${3:-} mark
   case $level in
     PASS) ((pass+=1)); mark='OK' ;;
     WARN) ((warn+=1)); mark='!!' ;;
@@ -26,22 +67,86 @@ has() {
   if command -v "$1" >/dev/null 2>&1; then result PASS "$1" "$(command -v "$1")"; else result WARN "$1" 'not installed'; fi
 }
 
-if [[ ${1:-} == --terminal ]]; then
-  command -v kitty >/dev/null 2>&1 || { printf 'underlight-doctor: kitty is not installed\n' >&2; exit 1; }
-  exec kitty --class underlight-doctor --title 'Underlight doctor' sh -lc 'underlight-doctor; printf "\nPress Enter to close..."; read -r _'
-fi
+check_path() {
+  local label=$1 path=$2
+  if [[ -L $path && ! -e $path ]]; then
+    result FAIL "$label" "broken link: $path; restore its target or rerun ./install.sh from your Underlight checkout"
+  elif [[ -r $path ]]; then
+    result PASS "$label" "$path"
+  else
+    result WARN "$label" "missing or unreadable: $path; rerun ./install.sh from your Underlight checkout"
+  fi
+}
 
 printf 'Underlight system doctor\n\nCore desktop\n'
-for command in Hyprland hyprctl waybar kitty wofi; do has "$command"; done
-if Hyprland --verify-config --config "${HOME:?}/.config/hypr/hyprland.conf" >/dev/null 2>&1; then
+for command in Hyprland hyprctl waybar kitty wofi hyprpaper hypridle; do has "$command"; done
+if ! command -v Hyprland >/dev/null 2>&1; then
+  result WARN 'Hyprland config' 'verification unavailable; install Hyprland on a desktop host'
+elif [[ ! -r $config_root/hypr/hyprland.conf ]]; then
+  result WARN 'Hyprland config' 'verification skipped; configuration is missing or unreadable'
+elif probe Hyprland --verify-config --config "$config_root/hypr/hyprland.conf" >/dev/null 2>&1; then
   result PASS 'Hyprland config' 'parses successfully'
 else
-  result FAIL 'Hyprland config' 'verification failed'
+  status=$?
+  if timed_out "$status"; then
+    result WARN 'Hyprland config' "verification timed out after ${probe_timeout}s"
+  else
+    result FAIL 'Hyprland config' "verification failed; run: Hyprland --verify-config --config \"$config_root/hypr/hyprland.conf\""
+  fi
+fi
+
+printf '\nConfiguration and links\n'
+check_path 'Hyprland entry point' "$config_root/hypr/hyprland.conf"
+check_path 'Kitty config' "$config_root/kitty/kitty.conf"
+check_path 'Waybar config' "$config_root/waybar/config.jsonc"
+check_path 'Wallpaper service file' "$config_root/systemd/user/underlight-wallpaper.service"
+check_path 'SSH config' "$HOME/.ssh/config"
+check_path 'SSH keepalive defaults' "$HOME/.ssh/config.d/underlight.conf"
+has ssh
+
+printf '\nDesktop session and services\n'
+if [[ -z ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then
+  result WARN 'Hyprland session' 'not in a Hyprland session; live compositor and wallpaper checks skipped'
+else
+  if command -v hyprctl >/dev/null 2>&1; then
+    config_errors=$(probe hyprctl configerrors 2>&1)
+    status=$?
+    if timed_out "$status"; then
+      result WARN 'Live Hyprland config' "compositor query timed out after ${probe_timeout}s"
+    elif (( status != 0 )); then
+      result WARN 'Live Hyprland config' 'cannot reach compositor; run hyprctl configerrors in the desktop terminal'
+    elif [[ -n ${config_errors//[[:space:]]/} && $config_errors != 'ok' ]]; then
+      result FAIL 'Live Hyprland config' 'compositor reports errors; run hyprctl configerrors for details'
+    else
+      result PASS 'Live Hyprland config' 'no configuration errors'
+    fi
+  fi
+  if command -v systemctl >/dev/null 2>&1; then
+    wallpaper_state=$(probe systemctl --user show underlight-wallpaper.service --property=ActiveState --value 2>/dev/null)
+    status=$?
+    if timed_out "$status"; then
+      result WARN 'Wallpaper service' "user service query timed out after ${probe_timeout}s"
+    elif (( status != 0 )); then
+      result WARN 'Wallpaper service' 'user service manager unavailable; rerun doctor in the desktop terminal'
+    else
+      case $wallpaper_state in
+        active) result PASS 'Wallpaper service' 'active' ;;
+        failed) result FAIL 'Wallpaper service' 'failed; inspect: journalctl --user -u underlight-wallpaper.service -b' ;;
+        *) result WARN 'Wallpaper service' "${wallpaper_state:-unknown}; in Hyprland run: systemctl --user daemon-reload && hyprctl reload" ;;
+      esac
+    fi
+  else
+    result WARN 'Wallpaper service' 'systemctl unavailable; user service check skipped'
+  fi
 fi
 
 printf '\nGPU and power\n'
-if gpu_line=$(nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader 2>&1); then
+gpu_line=$(probe nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader 2>&1)
+status=$?
+if (( status == 0 )); then
   result PASS 'NVIDIA' "$gpu_line"
+elif timed_out "$status"; then
+  result WARN 'NVIDIA' "telemetry timed out after ${probe_timeout}s; run underlight-gpu-check on the host"
 elif [[ $gpu_line == *'Driver/library version mismatch'* ]]; then
   result FAIL 'NVIDIA' 'driver/library version mismatch; save your work and reboot to load the updated driver'
 elif [[ -r /proc/driver/nvidia/version && ! -e /dev/nvidiactl ]]; then
@@ -52,8 +157,15 @@ else
   result WARN 'NVIDIA' 'driver not loaded'
 fi
 if command -v switcherooctl >/dev/null 2>&1; then
-  prime=$(switcherooctl list 2>&1 || true)
-  if [[ $prime == *NVIDIA* ]]; then result PASS 'PRIME offload' 'Intel + NVIDIA discovered'; else result WARN 'PRIME offload' 'no discrete GPU returned in this environment'; fi
+  prime=$(probe switcherooctl list 2>&1)
+  status=$?
+  if timed_out "$status"; then
+    result WARN 'PRIME offload' "GPU discovery timed out after ${probe_timeout}s"
+  elif (( status == 0 )) && [[ $prime == *NVIDIA* ]]; then
+    result PASS 'PRIME offload' 'NVIDIA offload GPU discovered'
+  else
+    result WARN 'PRIME offload' 'no discrete GPU returned in this environment'
+  fi
 else
   result WARN 'PRIME offload' 'switcheroo-control is not installed'
 fi
@@ -72,10 +184,13 @@ fi
 printf '\nAI stack\n'
 has ollama
 if command -v ollama >/dev/null 2>&1; then
-  ollama_state=$(ollama list 2>&1)
-  if [[ $? -eq 0 ]]; then
+  ollama_state=$(probe ollama list 2>&1)
+  status=$?
+  if (( status == 0 )); then
     model_count=$(awk 'NR > 1 && NF { count++ } END { print count+0 }' <<< "$ollama_state")
     result PASS 'Ollama service' "$model_count local model(s)"
+  elif timed_out "$status"; then
+    result WARN 'Ollama service' "model query timed out after ${probe_timeout}s; check OLLAMA_HOST and the Ollama service"
   elif [[ $ollama_state == *'operation not permitted'* ]]; then
     result WARN 'Ollama service' 'local socket blocked by this sandbox; run doctor in a normal terminal'
   else
@@ -83,7 +198,9 @@ if command -v ollama >/dev/null 2>&1; then
   fi
 fi
 has opencode
-if jq -e . "${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode.json" >/dev/null 2>&1; then
+if ! command -v jq >/dev/null 2>&1; then
+  result WARN 'OpenCode config' 'JSON validation unavailable; install jq'
+elif jq -e . "$config_root/opencode/opencode.json" >/dev/null 2>&1; then
   result PASS 'OpenCode config' 'valid JSON'
 else
   result WARN 'OpenCode config' 'missing or invalid'
@@ -117,12 +234,12 @@ else
 fi
 if [[ -f $HOME/projects/give_laptop_ac/main.py ]]; then
   result PASS 'give_laptop_ac' 'working copy present'
-elif [[ -f $HOME/.local/share/underlight/give_laptop_ac/main.py ]]; then
+elif [[ -f $data_root/underlight/give_laptop_ac/main.py ]]; then
   result PASS 'give_laptop_ac' 'bundled copy present'
 else
   result WARN 'give_laptop_ac' 'project missing'
 fi
-if [[ -x $HOME/.local/share/underlight/venvs/rag_pipeline/bin/python ]]; then
+if [[ -x $data_root/underlight/venvs/rag_pipeline/bin/python ]]; then
   result PASS 'RAG pipeline' 'optional component installed'
 else
   result WARN 'RAG pipeline' 'optional component not installed'

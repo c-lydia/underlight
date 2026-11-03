@@ -37,6 +37,10 @@ fi
 
 # switcheroo-control discovers the right non-default device and its required
 # environment. Probe it before exec so a missing system service can fall back.
+gpu_policy_file="${XDG_CONFIG_HOME:-$HOME/.config}/underlight/gpu-policy"
+if [[ -r $gpu_policy_file && $(<"$gpu_policy_file") == integrated ]]; then
+  exec env -u __NV_PRIME_RENDER_OFFLOAD -u __GLX_VENDOR_LIBRARY_NAME -u __VK_LAYER_NV_optimus -u DRI_PRIME "$@"
+fi
 if command -v switcherooctl >/dev/null 2>&1; then
   gpu_list=$(switcherooctl list 2>/dev/null || true)
   if [[ -n ${gpu_list//[[:space:]]/} ]]; then

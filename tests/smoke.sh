@@ -4,6 +4,7 @@ set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 scripts=(
+  "$root/.local/bin/underlight-shot"
   "$root/.local/bin/underlight-android"
   "$root/install-terminal.sh"
   "$root/install.sh"
@@ -30,8 +31,15 @@ for script in "${scripts[@]}"; do bash -n "$script"; done
 bash "$root/tests/cuda.sh"
 bash "$root/tests/android.sh"
 python3 "$root/tests/test_terminal.py"
+python3 "$root/tests/test_luma.py"
+node "$root/tests/test_luma_plugin.js"
 python3 "$root/tests/test_obsidian.py"
+node "$root/tests/test_obsidian_pdf.js"
 python3 "$root/tests/test_glass.py"
+python3 "$root/tests/test_doctor.py"
+python3 "$root/tests/test_workflows.py"
+python3 "$root/tests/test_endeavouros.py"
+python3 "$root/tests/test_shot.py"
 for script in "${scripts[@]}"; do
   [[ -x $script ]] || { printf 'not executable: %s\n' "$script" >&2; exit 1; }
 done
@@ -58,6 +66,11 @@ HOME="$test_home" XDG_STATE_HOME="$test_state" \
 [[ -L $test_home/.config/nvim ]]
 [[ $(readlink -f -- "$test_home/.config/nvim") == $(readlink -f -- "$test_workbench") ]]
 [[ -L $test_home/.local/bin/underlight-control ]]
+for workflow in snapshot shortcuts project privacy capture machine; do
+  [[ -x $test_home/.local/bin/underlight-$workflow ]]
+  HOME="$test_home" "$test_home/.local/bin/underlight-$workflow" --help >/dev/null
+done
+[[ -L $test_home/.local/share/underlight/workflows ]]
 [[ -x $test_home/.local/bin/underlight-obsidian ]]
 [[ -L $test_home/.local/share/underlight/obsidian ]]
 [[ -L $test_home/.local/bin/underlight-glass ]]
@@ -76,6 +89,16 @@ HOME="$test_home" XDG_STATE_HOME="$test_state" \
 [[ -L $test_home/.config/underlight/toolchains.sh ]]
 [[ -L $test_home/.local/bin/underlight-android ]]
 [[ -L $test_home/.local/bin/underlight-tui ]]
+# The EndeavourOS bootstrap delegates to this same desktop install manifest.
+for helper in underlight-luma underlight-ai underlight-obsidian-opencode \
+  underlight-obsidian-hermes underlight-obsidian-copilot underlight-obsidian-cursor \
+  underlight-obsidian-antigravity underlight-obsidian-rag; do
+  [[ -x $test_home/.local/bin/$helper ]]
+done
+[[ -L $test_home/.local/share/underlight/luma ]]
+[[ -L $test_home/.local/share/underlight/ollama ]]
+[[ -L $test_home/.local/share/applications/underlight-luma.desktop ]]
+[[ -L $test_home/.config/systemd/user/underlight-wallpaper.service ]]
 [[ -L $test_home/.local/share/applications/underlight-android.desktop ]]
 [[ -L $test_home/.local/share/applications/underlight-terminal.desktop ]]
 [[ -L $test_home/.config/underlight/logo.svg ]]
@@ -117,6 +140,11 @@ if [[ -e $test_home/.local/bin/ros2-workspace || -L $test_home/.local/bin/ros2-w
 fi
 
 for removed in .config/underlight/cuda.sh .config/underlight/android.sh .config/underlight/toolchains.sh \
+  .local/bin/underlight-luma .local/share/underlight/luma .local/share/underlight/ollama \
+  .local/bin/underlight-obsidian-hermes .local/bin/underlight-obsidian-copilot \
+  .local/bin/underlight-obsidian-cursor .local/bin/underlight-obsidian-antigravity \
+  .local/bin/underlight-obsidian-opencode .local/bin/underlight-obsidian-rag \
+  .local/share/applications/underlight-luma.desktop .config/systemd/user/underlight-wallpaper.service \
   .local/bin/underlight-obsidian .local/share/underlight/obsidian \
   .local/bin/underlight-android .local/bin/underlight-tui .local/bin/underlight-net-admin \
   .local/share/applications/underlight-android.desktop .local/share/applications/underlight-terminal.desktop; do
@@ -145,10 +173,15 @@ mkdir -p "$minimal_home" "$minimal_state"
 HOME="$minimal_home" XDG_STATE_HOME="$minimal_state" "$root/install-terminal.sh" >/dev/null
 [[ -L $minimal_home/.local/bin/underlight-tui ]]
 [[ -L $minimal_home/.local/bin/underlight-net-admin ]]
+[[ -L $minimal_home/.local/bin/underlight-project ]]
+[[ -L $minimal_home/.local/bin/underlight-capture ]]
 [[ ! -e $minimal_home/.config/hypr ]]
 [[ ! -e $minimal_home/.config/nvim ]]
 [[ ! -e $minimal_home/.local/bin/underlight-android ]]
 [[ ! -e $minimal_home/.local/share/underlight/give_laptop_ac ]]
 HOME="$minimal_home" XDG_STATE_HOME="$minimal_state" "$root/install.sh" --restore latest >/dev/null
 [[ ! -e $minimal_home/.local/bin/underlight-tui && ! -L $minimal_home/.local/bin/underlight-tui ]]
+for workflow in snapshot shortcuts project privacy capture machine; do
+  [[ ! -e $minimal_home/.local/bin/underlight-$workflow && ! -L $minimal_home/.local/bin/underlight-$workflow ]]
+done
 printf 'UNDERLIGHT_SMOKE_OK\n'

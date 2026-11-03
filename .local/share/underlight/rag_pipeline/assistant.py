@@ -8,6 +8,7 @@ import time
 import requests
 from config_loader import load_config
 from rag_core import Embedder, cosine_score, table_exists
+from privacy_policy import check_ollama
 
 cfg = load_config()
 
@@ -105,6 +106,7 @@ def build_prompt(query: str, chunks: list[dict], chat_history: list[dict] | None
 def ask_ollama(prompt: str, model: str | None = None,
                max_context: int = 4096, *, raise_on_error: bool = False) -> str:
     model = model or cfg["ollama"]["model"]
+    check_ollama(cfg['ollama']['base_url'], model)
     payload = {
         "model": model,
         "prompt": prompt,
@@ -120,7 +122,8 @@ def ask_ollama(prompt: str, model: str | None = None,
         if key in cfg["ollama"]:
             payload[key] = cfg["ollama"][key]
     try:
-        resp = requests.post(OLLAMA_URL, json=payload, timeout=OLLAMA_TIMEOUT)
+        resp = requests.post(OLLAMA_URL, json=payload, timeout=OLLAMA_TIMEOUT,
+                             allow_redirects=False, proxies={'http': '', 'https': ''})
         resp.raise_for_status()
         data = resp.json()
         answer = data.get("response")

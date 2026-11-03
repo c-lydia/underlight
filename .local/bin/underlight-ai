@@ -2,22 +2,44 @@
 
 set -euo pipefail
 
+# GUI sessions do not necessarily inherit an interactive shell's PATH.
+export PATH="$HOME/.local/bin:$HOME/.opencode/bin:${PATH:-/usr/local/bin:/usr/bin:/bin}"
+helper_dir=$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")
+privacy="$helper_dir/underlight-privacy"
+
 usage() {
   printf '%s\n' \
     'Usage: underlight-ai menu|status|opencode|zen|hermes|copilot|cursor|antigravity|ollama|rag [DIRECTORY|MODEL]' \
     '' \
-    'Launch the existing Ollama, OpenCode, and Hermes setup from Underlight.'
+    'Launch installed AI clients using their existing accounts and configuration.'
 }
 
 terminal() {
   local class=$1 title=$2 directory=$3
   shift 3
   command -v kitty >/dev/null 2>&1 || { printf 'underlight-ai: kitty is not installed\n' >&2; return 1; }
-  exec kitty --class "$class" --title "$title" --directory "$directory" "$@"
+  exec kitty --class "$class" --title "$title" --directory "$directory" sh -c '
+    "$@"
+    status=$?
+    if [ "$status" -ne 0 ]; then
+      printf "\nThe AI client exited with status %s. Press Enter to close..." "$status"
+      read -r _
+    fi
+    exit "$status"
+  ' underlight-ai-client "$@"
+}
+
+prepare_ai() {
+  # Performance tuning is optional; unsupported hardware or a stopped power
+  # daemon must not prevent the actual client from opening.
+  if command -v underlight-profile >/dev/null 2>&1; then
+    timeout 3 underlight-profile ai >/dev/null || printf 'underlight-ai: continuing with the current power profile\n' >&2
+  fi
 }
 
 status() {
   printf 'Underlight AI stack\n\n'
+  "$privacy" status
   if command -v ollama >/dev/null 2>&1; then
     ollama --version 2>&1 || true
     printf '\nLoaded Ollama models\n'
@@ -62,10 +84,11 @@ menu() {
     'Google Antigravity' \
     'Ollama model' \
     'Local RAG' \
+    'Privacy controls' \
     'AI stack status' \
     'AI performance profile' \
     'Balanced profile' |
-    wofi --dmenu --insensitive --prompt 'AI tools') || return
+    wofi --dmenu --insensitive --prompt "AI tools · ${UNDERLIGHT_PRIVACY:-saved privacy mode}") || return
   case $choice in
     OpenCode) exec "$0" opencode ;;
     'OpenCode Zen (free)') exec "$0" zen ;;
@@ -75,6 +98,7 @@ menu() {
     'Google Antigravity') exec "$0" antigravity ;;
     'Ollama model') exec "$0" ollama ;;
     'Local RAG') exec underlight-rag menu ;;
+    'Privacy controls') exec "$privacy" menu ;;
     'AI stack status') terminal underlight-ai-status 'AI stack status' "$HOME" sh -lc 'underlight-ai status; printf "\nPress Enter to close..."; read -r _' ;;
     'AI performance profile') exec underlight-profile ai ;;
     'Balanced profile') exec underlight-profile balanced ;;
@@ -83,6 +107,9 @@ menu() {
 
 command=${1:-menu}
 [[ $# -gt 0 ]] && shift
+case $command in
+  opencode|zen|hermes|copilot|cursor|antigravity) "$privacy" check-client "$command" ;;
+esac
 case $command in
   -h|--help) usage ;;
   menu) menu ;;
@@ -107,7 +134,7 @@ case $command in
         underlight-obsidian-opencode --standalone "$directory"
     fi
     command -v opencode >/dev/null 2>&1 || { printf 'underlight-ai: opencode is not installed\n' >&2; exit 1; }
-    underlight-profile ai >/dev/null
+    prepare_ai
     terminal io.github.chhenglydia.OpenCode OpenCode "$directory" opencode "$directory"
     ;;
   zen)
@@ -115,14 +142,14 @@ case $command in
     model=${2:-${UNDERLIGHT_ZEN_MODEL:-opencode/mimo-v2.6-flash-free}}
     [[ -d $directory ]] || { printf 'underlight-ai: not a directory: %s\n' "$directory" >&2; exit 2; }
     command -v opencode >/dev/null 2>&1 || { printf 'underlight-ai: opencode is not installed\n' >&2; exit 1; }
-    underlight-profile ai >/dev/null
+    prepare_ai
     terminal io.github.chhenglydia.OpenCode 'OpenCode Zen (free)' "$directory" opencode "$directory" --model "$model"
     ;;
   hermes)
     directory=${1:-$PWD}
     [[ -d $directory ]] || { printf 'underlight-ai: not a directory: %s\n' "$directory" >&2; exit 2; }
     command -v hermes >/dev/null 2>&1 || { printf 'underlight-ai: hermes is not installed\n' >&2; exit 1; }
-    underlight-profile ai >/dev/null
+    prepare_ai
     terminal io.github.chhenglydia.Hermes Hermes "$directory" hermes --in "$directory"
     ;;
   ollama)
@@ -133,7 +160,8 @@ case $command in
       model=$(ollama list 2>/dev/null | awk 'NR > 1 { print $1 }' | wofi --dmenu --insensitive --prompt 'Ollama model') || exit
     fi
     [[ -n $model ]] || exit 0
-    underlight-profile ai >/dev/null
+    "$privacy" check-ollama "$model"
+    prepare_ai
     terminal io.github.chhenglydia.Ollama "Ollama · $model" "$PWD" ollama run "$model"
     ;;
   rag)

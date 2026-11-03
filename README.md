@@ -16,6 +16,13 @@ including the 2.4 GHz hotspot, NAT, UDP port 55555, ROS 2, GPU/AI tools, state,
 and safe modification workflow, see
 [UNDERSTANDING_UNDERLIGHT.md](UNDERSTANDING_UNDERLIGHT.md).
 
+For current entry points, optional setup, and EndeavourOS parity, see the
+[feature guide](docs/FEATURES.md).
+
+For snapshots, searchable shortcuts, persistent project workspaces, Luma privacy,
+Obsidian quick capture and per-machine settings, see
+[everyday workflows](docs/WORKFLOWS.md).
+
 ## Included
 
 - Hyprland entry point and modular `underlight/` configuration
@@ -30,6 +37,10 @@ and safe modification workflow, see
 - Persistent five-shell ROS 2/SSH workspaces with client keepalives
 - Obsidian styling and templates for projects, research, daily planning, and journaling
 - A hardware-safe 2.4 GHz NetworkManager phone-hotspot workflow
+- A grouped, searchable network lab with editable prompts and session result history
+- Luma, a shared desktop/Obsidian AI companion with visible launch feedback
+- Host-agent bridges for Copilot CLI, Hermes, Cursor and Antigravity
+- Android Studio, Flutter, ADB and emulator entry points
 
 ## Components and architecture
 
@@ -195,6 +206,9 @@ system diagnostics, and session/power actions.
 | Keys | Action |
 | --- | --- |
 | `Super+X` | Open all system actions |
+| `Super+/` | Search shortcuts and menu actions |
+| `Super+Alt+W` | Open a saved persistent project workspace |
+| `Super+Alt+N` | Capture a thought, link, clipboard text or screenshot to Obsidian |
 | `Super+Space` or `Super+R` | Open the application launcher |
 | `Super+Tab` | Move to the next active desktop |
 | `Super+Shift+Tab` | Move to the previous active desktop |
@@ -250,7 +264,15 @@ standard Wayland/Linux tools:
   and switcheroo-control discovery without changing the machine.
 - `underlight-doctor` checks the desktop, NVIDIA/PRIME, Ollama, OpenCode,
   Hermes, Neovim, ROS 2, and laptop-dashboard integration. It distinguishes a
-  restricted sandbox from a host driver failure.
+  restricted sandbox from a host driver failure, detects broken configuration
+  links, and checks live Hyprland errors and the wallpaper service. Checks are
+  read-only and print repair guidance. External desktop, GPU and service probes
+  time out after five seconds each; use
+  `UNDERLIGHT_DOCTOR_TIMEOUT=10 underlight-doctor` for slower hosts.
+  Run `underlight-doctor --help` for options.
+  On both Ubuntu and EndeavourOS, run it inside Hyprland for live session checks;
+  outside Hyprland those checks are skipped. Exit status is 1 for failures and
+  0 for reports containing only passes and warnings. Optional tools may be absent.
 - `underlight-ai` opens the existing Ollama, OpenCode, and Hermes setup without
   rewriting model, provider, or credential files.
 - `underlight-profile` provides manual `ai`, `performance`, `balanced`,
@@ -369,11 +391,15 @@ cd underlight
 The default bootstrap installs Hyprland, the complete Neovim workbench, and the
 bundled `give_laptop_ac` dashboard. It installs the same `Super+X` system menu
 and desktop-navigation bindings documented above; no EndeavourOS-specific
-keybinding step is required. AI and RAG remain opt-in:
+keybinding step is required. All six everyday workflows are included by default:
+snapshots, shortcut search, persistent project workspaces, privacy controls,
+Obsidian quick capture and machine profiles. AI runtimes and RAG remain opt-in:
 
 ```bash
 ./install-endeavouros.sh --with-ai   # adds Ollama and OpenCode; no models
 ./install-endeavouros.sh --with-rag  # adds AI plus the isolated RAG environment
+./install-endeavouros.sh --with-android # adds Android/Flutter prerequisites
+./install-endeavouros.sh --print-packages # inspect the package list without installing
 ```
 
 `--with-rag` creates `~/.config/underlight/rag.yaml`; review its source paths
@@ -413,6 +439,11 @@ battery section for power profiles. Right-click audio for the volume mixer.
 NVIDIA drivers are deliberately not installed by the bootstrap because the
 correct package depends on the GPU and kernel. Install the driver through
 EndeavourOS first; Underlight's PRIME helpers will detect it afterward.
+
+The bootstrap also includes the current network lab, Luma, Obsidian bridges,
+Android launchers, and laptop dashboard. See [feature parity and upgrade
+steps](docs/FEATURES.md#endeavouros-feature-parity) for dependencies and optional
+account, plugin, model and hardware setup.
 
 ## CUDA toolchain
 
@@ -476,11 +507,22 @@ underlight-ai status
 underlight-ai opencode ~/projects/example
 underlight-ai zen ~/projects/example
 underlight-ai hermes ~/projects/example
+underlight-ai copilot ~/projects/example
+underlight-ai cursor ~/projects/example
+underlight-ai antigravity ~/projects/example
 underlight-ai ollama MODEL
 underlight-ai rag
 ```
 
-Selecting an interactive AI workload applies the opt-in performance profile;
+OpenCode, Zen, Hermes and Ollama request the opt-in performance profile when
+launched; an unavailable power service no longer prevents the client from
+opening. Copilot CLI, Cursor and Antigravity use their existing host clients.
+Use Luma (`underlight-luma --show`) for the same launch choices, or
+`underlight-luma --hide` to hide the desktop avatar. No global Luma visibility
+shortcut is assigned. See [Luma](docs/OBSIDIAN.md#shared-luma-companion) for
+Obsidian behavior and error recovery.
+
+After an AI workload,
 `underlight-profile balanced` returns to the normal balanced profile. Use
 `underlight-profile auto` to choose performance on AC and power-saver on
 battery for the current session.

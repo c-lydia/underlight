@@ -251,6 +251,43 @@ def apply(vault):
     write_changes(vault, changes, folders)
 
 
+def repair_pdf_export(vault):
+    """Wait for MathJax and assets in both Better Export PDF 2.0.3 engines."""
+    vault = vault.expanduser().resolve()
+    relative = ".obsidian/plugins/better-export-pdf/main.js"
+    manifest = json.loads(safe_path(vault, ".obsidian/plugins/better-export-pdf/manifest.json").read_text())
+    if manifest.get("id") != "better-export-pdf" or manifest.get("version") != "2.0.3":
+        raise ValueError("This PDF repair is only verified for Better Export PDF 2.0.3")
+    source = safe_path(vault, relative).read_text()
+    guard = (ASSETS / "pdf-export-ready.js").read_text()
+    if guard in source:
+        source = source.replace("\n" + guard, "", 1)
+    elif "async function underlightPreparePdf(" in source:
+        raise ValueError("PDF readiness guard differs from the verified repair")
+    replacements = json.loads((ASSETS / "better-export-pdf-2.0.3.json").read_text())
+    for before, after in replacements:
+        # Some replacements contain their original text; check the full repair first.
+        if source.count(after) == 1:
+            if source.replace(after, "").count(before):
+                raise ValueError("Ambiguous PDF bundle; repair not applied")
+            continue
+        if source.count(before) != 1:
+            raise ValueError("PDF bundle differs from the verified release; repair not applied")
+        source = source.replace(before, after)
+    appearance_path = ".obsidian/appearance.json"
+    path = safe_path(vault, appearance_path)
+    appearance = json.loads(path.read_text()) if path.exists() else {}
+    if not isinstance(appearance, dict) or not isinstance(appearance.get("enabledCssSnippets", []), list):
+        raise ValueError("Invalid appearance settings; PDF repair not applied")
+    appearance["enabledCssSnippets"] = list(dict.fromkeys([
+        *appearance.get("enabledCssSnippets", []), "underlight-pdf"]))
+    write_changes(vault, {
+        relative: (source + "\n" + guard).encode(),
+        appearance_path: encode(appearance),
+        ".obsidian/snippets/underlight-pdf.css": (ASSETS / "underlight-pdf.css").read_bytes(),
+    })
+
+
 def repair_notebooklm(vault):
     vault = vault.expanduser().resolve()
     relative = '.obsidian/plugins/star-notebooklm/main.js'
@@ -445,6 +482,7 @@ def main():
     parser.add_argument("--repair-copilot-view", action="store_true", help="repair missing-context rendering in Copilot 4.0.15")
     parser.add_argument("--luma", action="store_true", help="install the shared Underlight Luma companion")
     parser.add_argument("--repair-notebooklm", action="store_true", help="update Star NotebookLM 1.2.4 links and load errors")
+    parser.add_argument("--repair-pdf-export", action="store_true", help="persist math readiness and print layout fixes for Better Export PDF 2.0.3")
     parser.add_argument("--gpu-qwen", action="store_true", help="configure Qwen 4B GPU inference and longer cold-load timeout")
     parser.add_argument("--node-path", type=Path, help="Node 22+ executable visible inside Obsidian")
     parser.add_argument("--rag-config", type=Path, default=Path.home() / ".config/underlight/rag.yaml")
@@ -458,6 +496,8 @@ def main():
     if args.ai and (args.restore or not args.node_path):
         parser.error("--ai requires a vault and --node-path")
     agent_setup = args.hermes or args.copilot_cli or args.cursor or args.antigravity
+    if args.repair_pdf_export and (args.restore or args.ai or agent_setup or args.luma or args.repair_copilot_view or args.repair_notebooklm):
+        parser.error('--repair-pdf-export requires a vault and must be used separately')
     if args.repair_notebooklm and (args.restore or args.ai or agent_setup or args.luma or args.repair_copilot_view):
         parser.error('--repair-notebooklm requires a vault and must be used separately')
     if args.luma and (args.restore or args.ai or agent_setup or args.repair_copilot_view):
@@ -467,7 +507,9 @@ def main():
     if agent_setup and (args.restore or args.ai):
         parser.error("Agent Client setup requires a vault and cannot be combined with --ai or --restore")
     try:
-        if args.repair_notebooklm:
+        if args.repair_pdf_export:
+            repair_pdf_export(args.vault)
+        elif args.repair_notebooklm:
             repair_notebooklm(args.vault)
         elif args.luma:
             apply_luma(args.vault)

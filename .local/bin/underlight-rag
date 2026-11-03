@@ -185,7 +185,7 @@ case $command in
   index) require_install; exec env -u PYTHONPATH "$python" "$project/indexer.py" "$@" ;;
   server) require_install; exec env -u PYTHONPATH "$python" "$project/rag_server.py" "$@" ;;
   mcp) require_install; exec env -u PYTHONPATH "$python" "$project/rag_mcp_server.py" ;;
-  opencode) require_install; exec env PATH="$(dirname -- "$python"):$PATH" bash "$project/run_opencode.sh" "$@" ;;
+  opencode) "$(dirname -- "$script_path")/underlight-privacy" check-client opencode; require_install; exec env PATH="$(dirname -- "$python"):$PATH" bash "$project/run_opencode.sh" "$@" ;;
   -h|--help|help) usage ;;
   *) printf 'underlight-rag: unknown command: %s\n' "$command" >&2; usage >&2; exit 2 ;;
 esac

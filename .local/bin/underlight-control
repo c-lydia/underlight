@@ -26,6 +26,11 @@ open_menu() {
   local choice
   choice=$(printf '%s\n' \
     'Applications' \
+    'Shortcut guide' \
+    'Project workspaces' \
+    'Obsidian quick capture' \
+    'AI privacy' \
+    'Machine profiles' \
     'Wi-Fi' \
     'Desktop widgets' \
     'Audio mixer' \
@@ -41,6 +46,11 @@ open_menu() {
 
   case $choice in
     'Applications') exec underlight-menu ;;
+    'Shortcut guide') exec underlight-shortcuts ;;
+    'Project workspaces') exec underlight-project menu ;;
+    'Obsidian quick capture') exec underlight-capture menu ;;
+    'AI privacy') exec underlight-privacy menu ;;
+    'Machine profiles') exec underlight-machine menu ;;
     'Wi-Fi') exec underlight-network ;;
     'Desktop widgets') exec underlight-widgets-toggle ;;
     'Audio mixer') open_audio ;;

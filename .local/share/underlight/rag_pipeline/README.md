@@ -270,11 +270,14 @@ underlight-ai zen ~/projects/example opencode/nemotron-3.5-lightning-free
 Hermes continues to use the provider and model already selected in
 `~/.hermes/config.yaml`; the RAG server only adds local knowledge tools.
 
-Cloud privacy boundary: `search_local_knowledge` sends its returned excerpts
-to the calling client, so a Zen or other cloud model can receive that content.
-Use `ask_local_assistant` to keep raw retrieval and generation local (the
-resulting answer and source paths are still visible to the cloud client), or
-use `underlight-rag ask` for a completely local session.
+Cloud privacy boundary: `underlight-privacy` defaults to `local`, which blocks
+MCP/HTTP answer and excerpt exports. `underlight-privacy set local-answer`
+allows `ask_local_assistant` to return an answer and source paths; HTTP `/ask`
+omits raw chunks. `cloud-context` additionally permits `search_local_knowledge`
+and raw HTTP chunks. Use `underlight-rag ask` for a local terminal session.
+The policy is reread for every request. It controls RAG exports and Underlight
+launchers; it does not restrict another client's own filesystem tools. Answers
+can still contain sensitive facts or quotations from retrieved notes.
 
 ## Storage and privacy
 

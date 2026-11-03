@@ -10,6 +10,7 @@ import lancedb
 
 from assistant import ask_ollama, build_prompt, cfg, retrieve
 from rag_core import table_names
+from privacy_policy import check_export, mode
 
 SUPPORTED_PROTOCOLS = {
     "2024-11-05",
@@ -84,7 +85,10 @@ TOOLS = [
 
 def _resolved_tables(tables: list[str] | None) -> list[str]:
     selected = tables or cfg["assistant"]["search_tables"]
-    known = set(cfg["store"]["tables"])
+    configured = cfg["store"]["tables"]
+    known = set(configured)
+    physical_names = {physical: logical for logical, physical in configured.items()}
+    selected = [name if name in known else physical_names.get(name, name) for name in selected]
     unknown = sorted(set(selected) - known)
     if unknown:
         raise ValueError(
@@ -103,10 +107,12 @@ def _bounded_top_k(top_k: int) -> int:
 def search_local_knowledge_impl(
     query: str, tables: list[str] | None = None, top_k: int = 6
 ) -> dict[str, Any]:
+    check_export(raw=True)
     if not query.strip():
         raise ValueError("query must not be empty")
     selected = _resolved_tables(tables)
     chunks = retrieve(query, selected, top_k=_bounded_top_k(top_k))
+    check_export(raw=True)
     return {
         "query": query,
         "tables": selected,
@@ -122,6 +128,7 @@ def search_local_knowledge_impl(
 def ask_local_assistant_impl(
     query: str, tables: list[str] | None = None, top_k: int = 6
 ) -> dict[str, Any]:
+    check_export()
     if not query.strip():
         raise ValueError("query must not be empty")
     selected = _resolved_tables(tables)
@@ -131,6 +138,7 @@ def ask_local_assistant_impl(
         max_context=cfg["ollama"].get("max_context_tokens", 4096),
         raise_on_error=True,
     )
+    check_export()
     return {
         "query": query,
         "answer": answer,
@@ -157,6 +165,7 @@ def local_rag_status_impl() -> dict[str, Any]:
     indexed = set(table_names(db))
     return {
         "embedder": cfg["embedder"]["model"],
+        "privacy_mode": mode(),
         "embedder_device": cfg["embedder"].get("device", "cpu"),
         "local_answer_model": cfg["ollama"]["model"],
         "store": cfg["store"]["dir"],
@@ -213,7 +222,8 @@ def dispatch(message: dict[str, Any]) -> dict[str, Any] | None:
             "serverInfo": {"name": "Underlight Local RAG", "version": "1.0.0"},
             "instructions": (
                 "Search the local Underlight index for the user's projects and notes. "
-                "Prefer ask_local_assistant when raw excerpts should stay local."
+                "Use ask_local_assistant in local-answer mode. Raw search requires cloud-context. "
+                "Local mode blocks both exports; use the local CLI instead."
             ),
         })
     if method == "ping":

@@ -26,6 +26,7 @@ import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from config_loader import load_config
 from rag_core import table_names
+from privacy_policy import check_export, mode
 
 
 cfg = load_config()
@@ -138,6 +139,11 @@ class RagHandler(BaseHTTPRequestHandler):
             self._json(400, {"error": "system_prompt must be a string"})
             return
 
+        try:
+            privacy_mode = check_export()
+        except ValueError as exc:
+            self._json(403, {"error": str(exc)})
+            return
         t0 = time.time()
         try:
             chunks = retrieve(query, tables, top_k=top_k, min_score=min_score)
@@ -164,15 +170,23 @@ class RagHandler(BaseHTTPRequestHandler):
             for role, text in (("user", query), ("assistant", answer)):
                 result = log_chat(project, role, text)
                 if "error" in result:
-                    self._json(500, {"error": result["error"], "logged": False, "answer": answer})
+                    self._json(500, {"error": result["error"], "logged": False})
                     return
 
         elapsed = time.time() - t0
+        # Recheck after inference: changing to local must stop an in-flight export.
+        try:
+            privacy_mode = check_export()
+        except ValueError as exc:
+            self._json(403, {"error": str(exc)})
+            return
         self._json(200, {
             "answer": answer,
             "elapsed_s": round(elapsed, 2),
             "chunks_count": len(chunks),
-            "chunks": chunks[:3],  # snippet
+            "privacy_mode": privacy_mode,
+            "sources": [{key: chunk.get(key, '') for key in ('path', 'source', 'table')} for chunk in chunks],
+            "chunks": chunks[:3] if privacy_mode == 'cloud-context' else [],
         })
 
     def _handle_log(self, data: dict):

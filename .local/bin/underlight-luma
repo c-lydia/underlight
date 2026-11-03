@@ -9,11 +9,24 @@ import os
 import signal
 from pathlib import Path
 import subprocess
+import tempfile
 import time
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'share/underlight'))
+from workflows.privacy import mode as privacy_mode, MODES
 
 ASSETS = Path(__file__).resolve().parents[1] / 'share/underlight/luma'
-STATE = Path.home() / '.config/underlight/luma.json'
+STATE = Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config')) / 'underlight/luma.json'
 AGENTS = json.loads((ASSETS / 'agents.json').read_text())
+PANEL_BOTTOM = 155
+PANEL_TOP_GAP = 48
+
+
+def panel_size(monitor_width, monitor_height, content_height):
+    """Keep a useful viewport above the avatar, within the logical display size."""
+    return (max(1, min(360, monitor_width - 36)),
+            max(1, min(content_height, monitor_height - PANEL_BOTTOM - PANEL_TOP_GAP)))
 
 
 def read_state():
@@ -31,6 +44,45 @@ def save_state(**changes):
     temp.write_text(json.dumps(state, indent=2) + '\n')
     temp.replace(STATE)
     return state
+
+
+def launch_command(agent, state):
+    command = [str(Path.home() / '.local/bin/underlight-ai'), agent['command']]
+    directory = Path(state.get('vault') or Path.home()).expanduser()
+    if not directory.is_dir():
+        raise ValueError(f'Working folder does not exist: {directory}. Update vault in {STATE}.')
+    if agent['id'] == 'qwen':
+        command.append('qwen3:4b')
+    elif agent['id'] != 'rag':
+        command.append(str(directory))
+    return command, directory
+
+
+class LaunchJob:
+    """Watch the launcher without blocking GTK or losing its error output."""
+    def __init__(self, agent, state):
+        command, directory = launch_command(agent, state)
+        self.name = agent['name']
+        self.started = time.monotonic()
+        self.announced = False
+        self.log = tempfile.TemporaryFile()
+        environment = dict(os.environ)
+        rag_config = directory / '.obsidian/underlight-rag.yaml'
+        if agent['id'] == 'rag' and rag_config.is_file():
+            environment['RAG_CONFIG'] = str(rag_config)
+        try:
+            self.process = subprocess.Popen(command, cwd=directory, stdout=self.log,
+                                            stderr=subprocess.STDOUT, start_new_session=True, env=environment)
+        except OSError:
+            self.log.close()
+            raise
+
+    def failure(self, code):
+        self.log.seek(0, os.SEEK_END)
+        size = self.log.tell()
+        self.log.seek(max(0, size - 4096))
+        detail = self.log.read().decode(errors='replace').strip()
+        return f'{self.name} could not open (exit {code}).\n{detail or "Try underlight-ai status in a terminal."}'
 
 
 def main():
@@ -60,7 +112,7 @@ def main():
     import gi
     gi.require_version('Gtk', '3.0')
     gi.require_version('GLibUnix', '2.0')
-    from gi.repository import Gtk, Gdk, GdkPixbuf, GLib, GLibUnix
+    from gi.repository import Gtk, Gdk, GdkPixbuf, GLib, GLibUnix, Pango
 
     class Luma:
         def __init__(self):
@@ -68,6 +120,7 @@ def main():
             self.hover = False
             self.open = False
             self.last_poll = 0
+            self.launches = []
             self.layer = ctypes.CDLL('libgtk-layer-shell.so.0')
             for name, types in {
                 'init_for_window': [ctypes.c_void_p],
@@ -101,11 +154,19 @@ def main():
             self.canvas.connect('leave-notify-event', lambda *_: setattr(self, 'hover', False))
             self.canvas.connect('key-press-event', self.key)
             self.avatar.add(self.canvas)
-            self.panel = self.window('underlight-luma-panel', 155, 2)
+            self.panel = self.window('underlight-luma-panel', PANEL_BOTTOM, 2)
             box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
             box.get_style_context().add_class('luma-panel')
             title = Gtk.Label(label='Luma / your AI corner'); title.get_style_context().add_class('luma-title')
             box.pack_start(title, False, False, 3)
+            self.privacy_label = Gtk.Label()
+            self.privacy_label.set_line_wrap(True)
+            self.privacy_label.set_max_width_chars(44)
+            box.pack_start(self.privacy_label, False, False, 3)
+            privacy_button = Gtk.Button(label='Privacy controls')
+            privacy_button.connect('clicked', lambda *_: subprocess.Popen(
+                [str(Path(__file__).resolve().with_name('underlight-privacy')), 'menu']))
+            box.pack_start(privacy_button, False, False, 0)
             self.buttons = {}
             for agent in AGENTS:
                 button = Gtk.Button(label=agent['name'])
@@ -114,13 +175,26 @@ def main():
                 box.pack_start(button, False, False, 0)
                 self.buttons[agent['id']] = button
             self.status = Gtk.Label(label='Choose an AI to open it.'); self.status.set_line_wrap(True)
+            self.status.set_max_width_chars(46)
+            self.status.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            self.status.set_selectable(True)
             box.pack_start(self.status, False, False, 3)
             controls = Gtk.Box(spacing=4)
             for title, action in [('Motion', self.motion), ('Dock', self.dock), ('Hide', self.hide)]:
                 b = Gtk.Button(label=title); b.connect('clicked', action); controls.pack_start(b, True, True, 0)
             box.pack_start(controls, False, False, 0)
             close = Gtk.Button(label='Close'); close.connect('clicked', lambda *_: self.toggle(False)); box.pack_start(close, False, False, 0)
-            self.panel.add(box)
+            scroller = Gtk.ScrolledWindow()
+            scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+            scroller.set_propagate_natural_width(True)
+            scroller.set_propagate_natural_height(True)
+            scroller.add(box)
+            self.panel.add(scroller)
+            self.panel_box, self.scroller = box, scroller
+            # gtk-layer-shell sizes this popup from its minimum requisition.
+            # propagate_natural_height alone leaves a one-line viewport.
+            box.show_all()
+            self.resize_panel()
             self.panel.connect('key-press-event', self.key)
             self.apply()
             GLib.timeout_add(50, self.tick)
@@ -160,23 +234,74 @@ def main():
             self.stage.move(self.portrait, 4, int(y))
 
         def tick(self):
+            for job in self.launches[:]:
+                code = job.process.poll()
+                if code is not None:
+                    if code:
+                        self.status.set_text(job.failure(code))
+                        if not self.state.get('desktopHidden'):
+                            self.toggle(True)
+                    else:
+                        self.status.set_text(f'{job.name} launcher finished.')
+                    job.log.close()
+                    self.launches.remove(job)
+                elif not job.announced and time.monotonic() - job.started >= 1:
+                    job.announced = True
+                    self.status.set_text(f'{job.name} started. Check its window to continue.')
             if time.monotonic() - self.last_poll > 1:
                 self.last_poll = time.monotonic(); state = read_state()
+                try:
+                    selected = privacy_mode()
+                    self.privacy_label.set_text(f'{selected}: {MODES[selected]}')
+                except (OSError, ValueError) as error:
+                    self.privacy_label.set_text(str(error))
                 if state != self.state: self.state = state; self.apply()
+                if self.open:
+                    self.resize_panel()
             if not self.state.get('desktopHidden'): self.animate()
             return True
 
         def toggle(self, value=None):
             self.open = not self.open if value is None else value
+            if self.open:
+                self.resize_panel()
             self.panel.show_all() if self.open else self.panel.hide()
+
+        def resize_panel(self):
+            display = Gdk.Display.get_default()
+            window = self.avatar.get_window()
+            monitor = (display.get_monitor_at_window(window) if window else None)
+            monitor = monitor or display.get_primary_monitor() or display.get_monitor(0)
+            if monitor is None:
+                return
+            geometry = monitor.get_geometry()
+            width, _ = panel_size(geometry.width, geometry.height, 1)
+            natural_height = self.panel_box.get_preferred_height_for_width(width)[1]
+            width, height = panel_size(geometry.width, geometry.height, natural_height)
+            if getattr(self, '_panel_size', None) == (width, height):
+                return
+            self._panel_size = width, height
+            self.scroller.set_min_content_height(-1)
+            self.scroller.set_max_content_height(height)
+            self.scroller.set_min_content_height(height)
+            self.scroller.set_min_content_width(-1)
+            self.scroller.set_max_content_width(-1)
+            self.scroller.set_min_content_width(width)
+            self.scroller.set_max_content_width(width)
+            self.scroller.set_size_request(width, height)
+            self.panel.resize(width, height)
 
         def click(self, _, event):
             self.dock() if event.button == 3 else self.toggle()
             return True
 
         def key(self, _, event):
-            if event.keyval == Gdk.KEY_Escape: self.toggle(False)
-            elif event.keyval in [Gdk.KEY_Return, Gdk.KEY_space]: self.toggle()
+            if event.keyval == Gdk.KEY_Escape:
+                self.toggle(False)
+                return True
+            if _ is self.canvas and event.keyval in [Gdk.KEY_Return, Gdk.KEY_space]:
+                self.toggle()
+                return True
             return False
 
         def dock(self, *_):
@@ -190,13 +315,13 @@ def main():
 
         def choose(self, _, agent):
             self.state = save_state(selected=agent['id']); self.apply()
-            command = [str(Path.home()/'.local/bin/underlight-ai'), agent['command']]
-            if agent['id'] == 'qwen': command.append('qwen3:4b')
-            elif agent['id'] != 'rag': command.append(self.state.get('vault', str(Path.home())))
+            if any(job.name == agent['name'] and not job.announced for job in self.launches):
+                return
             try:
-                subprocess.Popen(command, start_new_session=True)
-                self.toggle(False)
-            except OSError as e: self.status.set_text(str(e))
+                self.launches.append(LaunchJob(agent, self.state))
+                self.status.set_text(f'Opening {agent["name"]}...')
+            except (OSError, ValueError) as e:
+                self.status.set_text(str(e))
 
     companion = Luma()
     def open_menu():

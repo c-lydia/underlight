@@ -3,11 +3,45 @@
 The same `underlight-tui` runs on Ubuntu/Debian, EndeavourOS/Arch, and Arch Linux
 ARM inside Termux. It uses Python's standard-library curses interface, with a
 compact phone layout and a two-pane desktop layout at 100 columns or more.
-Arrow keys or j/k select tools, Enter runs them, b returns from results, and q
-quits. Page Up/Down scroll results. Resize the terminal at any time. Use a
-terminal of at least 28 columns by 8 rows; 40 by 24 is comfortable on a phone.
-Long-running diagnostics run outside the rendering loop. A pending network
-operation may take a few seconds to finish after quitting.
+Tools are grouped by purpose. Press `/` to filter names and descriptions;
+submit an empty filter or use Escape on the tools pane to show everything.
+The focused pane and selected tool have distinct highlights.
+The desktop view uses a single quiet divider, compact headings and a full-row
+selection highlight. Before the first run, the result pane previews the selected
+tool's purpose. Colors follow the terminal's palette, matching Underlight's pale
+cyan and lavender theme when launched in its configured terminal. Compact screens
+use one pane; `NO_COLOR=1` keeps a monochrome view.
+
+| Key | Action |
+| --- | --- |
+| Up/Down or `j`/`k` | Select a tool, or scroll when results/help have focus |
+| Enter | Run the selected tool from the tools pane |
+| Tab | Switch between tools and results |
+| Right | View results |
+| `b`, Left, Escape | Close help / return to tools / clear the filter |
+| Page Up/Down | Scroll results or help by one page |
+| Home/End | First/last tool or result line, according to focus |
+| `[` / `]` | Older/newer result from the last 20 runs |
+| `?` | Open/close keyboard help |
+| `q` | Quit outside an input prompt |
+
+Inputs support cursor movement, Home/End, Backspace/Delete, and Ctrl+U to clear.
+Enter accepts the value; Escape cancels the entire action. Invalid host/port
+values leave the prompt open with an explanation. Long values scroll inside
+the field. Last-used inputs and results stay in memory only and are discarded
+when you quit. TCP defaults to port 443; UDP defaults to 55555.
+
+A running tool shows elapsed time while you browse other tools and past
+results. Each result shows its tool/destination, duration and visible line
+range. “Finished” indicates completion, not a successful network connection;
+the output explains failures. No second tool starts while a diagnostic is busy.
+SSH and settings tools temporarily restore the terminal, then return to the lab.
+
+Resize at any time, including during input. Use at least 28 columns by 8 rows;
+40 by 24 is comfortable on a phone. Long-running diagnostics run outside the
+rendering loop. DNS and TCP checks have six-second outer timeouts, including
+name resolution. A pending operation may still take a few seconds to finish
+after quitting; NAT helper operations have a longer timeout.
 
 ## Profile choices
 

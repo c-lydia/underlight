@@ -19,6 +19,7 @@ from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.color import Color
+from textual.theme import Theme
 from textual.containers import Container, Grid, Horizontal, ScrollableContainer, Vertical
 from textual.widgets import (
     Button,
@@ -235,16 +236,16 @@ class CtrlRow(Static):
 # ─── main app ────────────────────────────────────────────────────────────────
 
 class GiveLaptopAC(App):
-    TITLE = "give_laptop_ac"
-    SUB_TITLE = "MSI Cyborg 15 A12U"
+    TITLE = "UNDERLIGHT"
+    SUB_TITLE = "Laptop dashboard"
     AUTO_FOCUS = "#dash-scroll"
     BINDINGS = [
-        ("d", "show_tab('dash')", "Dash"),
+        ("d", "show_tab('dash')", "Overview"),
         ("o", "show_tab('ctrl')", "Controls"),
-        ("p", "show_tab('procs')", "Procs"),
-        Binding("j", "navigate('scroll_down')", "Scroll", key_display="j/k"),
+        ("p", "show_tab('procs')", "Processes"),
+        Binding("j", "navigate('scroll_down')", "Scroll", key_display="j/k", show=False),
         Binding("k", "navigate('scroll_up')", "", show=False),
-        Binding("f", "navigate('page_down')", "Page", key_display="f/b"),
+        Binding("f", "navigate('page_down')", "Page", key_display="f/b", show=False),
         Binding("b", "navigate('page_up')", "", show=False),
         Binding("h", "navigate('scroll_left')", "", show=False),
         Binding("l", "navigate('scroll_right')", "", show=False),
@@ -252,13 +253,24 @@ class GiveLaptopAC(App):
         Binding("1", "show_tab('dash')", "", show=False),
         Binding("2", "show_tab('ctrl')", "", show=False),
         Binding("3", "show_tab('procs')", "", show=False),
-        Binding("v", "toggle_details", "", show=False),
+        Binding("v", "toggle_details", "Charts"),
         ("c", "boost", "Boost"),
         ("r", "refresh_now", "Refresh"),
     ]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.register_theme(Theme(
+            name="underlight", primary="#7dcfff", secondary="#bb9af7",
+            accent="#bb9af7", foreground="#c0caf5", background="#14151f",
+            surface="#1a1b29", panel="#202231", success="#9ece6a",
+            warning="#e0af68", error="#f7768e", dark=True,
+            variables={"footer-key-foreground": "#7dcfff",
+                       "footer-description-foreground": "#a4aecf",
+                       "block-cursor-background": "#30394e",
+                       "block-cursor-foreground": "#c0caf5"},
+        ))
+        self.theme = "underlight"
         self._config: Settings = load_config()
         self._sort: str = "cpu"
         self._processes: list[tuple[int, float]] = []
@@ -301,43 +313,60 @@ class GiveLaptopAC(App):
         return self._nvml_ok
 
     CSS = """
-    Screen { background: transparent; }
-    Header, Footer, TabbedContent, TabbedContent > ContentSwitcher, TabPane,
+    Screen { background: transparent; color: #c0caf5; }
+    Header { background: #1a1b29; color: #7dcfff; text-style: bold; }
+    Footer { background: #1a1b29; padding: 0 1; }
+    TabbedContent, TabbedContent > ContentSwitcher, TabPane,
     #dash-scroll, #ctrl-scroll {
         background: transparent;
     }
     TabbedContent { height: 1fr; }
     TabbedContent > ContentSwitcher { height: 1fr; }
     TabPane { height: 1fr; padding: 1 1 0 1; }
+    Tabs { background: transparent; }
+    Tab { color: #9aaac2; padding: 0 2; }
+    Tab.-active { background: #292e43; color: #c0caf5; text-style: bold; }
+    Underline { color: #7dcfff; background: #292e43; }
+    Button { background: #202231; color: #c4d0e2; border: round #48566f; }
+    Button:hover { background: #30354a; color: #c0caf5; }
+    Button:disabled { color: #71809a; background: #172033; border: solid #243148; }
 
     /* ── dashboard ── */
     #dash-scroll, #ctrl-scroll {
         height: 1fr;
         scrollbar-gutter: stable;
+        scrollbar-color: #3f5572;
+        scrollbar-color-hover: #6e93aa;
+        scrollbar-color-active: #7dcfff;
+        scrollbar-background: #14151f;
     }
-    #dash-heading { height: 1; text-style: bold; color: $text; }
-    #dash-context { height: auto; color: $text-muted; margin-bottom: 1; }
-    #overview-grid { height: 12; grid-size: 2; grid-rows: 6; grid-gutter: 0 1; }
-    #dash-scroll.wide #overview-grid { height: 6; grid-size: 4; }
-    #dash-scroll.narrow #overview-grid { height: 24; grid-size: 1; }
-    OverviewCard { height: 6; border: round $surface-lighten-2; padding: 0 1; }
+    #dash-heading { height: 1; text-style: bold; color: #7dcfff; }
+    #dash-context { height: auto; color: #a4aecf; margin-bottom: 1; }
+    #overview-grid { height: 11; grid-size: 2; grid-rows: 5; grid-gutter: 1 2; }
+    #dash-scroll.wide #overview-grid { height: 5; grid-size: 4; }
+    #dash-scroll.narrow #overview-grid { height: 23; grid-size: 1; }
+    OverviewCard { height: 5; border: none; padding: 0 1; background: #1a1b29 65%; }
+    OverviewCard.unavailable { background: transparent; }
+    OverviewCard.warning { border-left: solid #e0af68; }
+    OverviewCard.critical { border-left: heavy #f7768e; }
     .overview-title, .overview-value, .overview-detail { height: 1; }
-    .overview-title { text-style: bold; }
+    .overview-title { margin-bottom: 1; }
     .overview-value { text-style: bold; }
-    .overview-detail { color: $text-muted; }
+    .overview-detail { color: #a4aecf; }
     OverviewCard Sparkline { height: 1; min-width: 0; }
     #dash-cooling, #dash-activity { height: auto; padding: 0 1; }
-    #dash-cooling { color: #4dabf7; margin-top: 1; }
-    #dash-activity { color: #20c997; margin-bottom: 1; }
+    #dash-cooling { color: #a4aecf; margin-top: 1; }
+    #dash-activity { color: #a4aecf; margin-bottom: 1; }
     #dash-details, #core-details { height: auto; padding: 0; margin: 0; border: none; }
     #dash-details > Contents, #core-details > Contents { padding: 0; }
+    CollapsibleTitle { color: #a4aecf; background: transparent; padding: 0 1; }
     .section {
         height: auto;
         margin-bottom: 0;
         padding: 0 1;
     }
     .section-title {
-        color: $primary;
+        color: #bb9af7;
         text-style: bold;
         margin: 0 0;
         padding: 0 1;
@@ -345,7 +374,7 @@ class GiveLaptopAC(App):
     }
     #row1, #row2, #row3, #row4, #row5, #row6, #row7, #row8 { height: auto; margin-bottom: 1; }
     #core-box {
-        border: round $primary;
+        border: solid $primary;
         border-title-align: left;
         padding: 1;
         height: auto;
@@ -359,42 +388,55 @@ class GiveLaptopAC(App):
     Sparkline { height: 3; min-width: 10; }
     SparkCard Sparkline { height: 2; }
     SparkCard { height: 4; width: 1fr; margin: 0 1; }
+    #dash-scroll.narrow #row1, #dash-scroll.narrow #row2,
+    #dash-scroll.narrow #row3, #dash-scroll.narrow #row4,
+    #dash-scroll.narrow #row5, #dash-scroll.narrow #row6,
+    #dash-scroll.narrow #row7, #dash-scroll.narrow #row8 { layout: vertical; }
+    #dash-scroll.narrow SparkCard { width: 1fr; height: 5; margin: 0 0 1 0; }
     Horizontal { width: 1fr; }
 
     /* ── controls ── */
     #presets, #hwbox, #extrabox, CtrlRow { width: auto; min-width: 100%; }
     #preset-row, .cr-opts, .ex-row { width: auto; min-width: 100%; }
+    #presets, #hwbox, #extrabox { border-title-color: #a4aecf; border-title-style: bold; border: none; border-top: solid #48566f; padding: 0 1; background: #1a1b29 65%; }
     #presets { height: 5; margin-bottom: 1; }
-    #preset-row Button.-on { background: $primary; color: $text; }
+    #preset-row Button.-on { background: #30394e; color: #c0caf5; border: round #7dcfff; }
     #hwbox { height: auto; margin-bottom: 1; }
     #extrabox { height: auto; }
     .cr-lbl { width: 14; color: $text-muted; }
     .cr-opts { height: 3; }
     .cbtn { margin-right: 1; }
-    .cbtn.-on { background: $primary; color: $text; }
+    .cbtn.-on { background: #30394e; color: #c0caf5; border: round #7dcfff; }
     .ex-row { height: 3; margin-bottom: 1; }
     .ex-lbl { width: 14; color: $text-muted; }
     .tbtn { margin-right: 1; }
-    .tbtn.-on { background: $success; color: $text; }
+    .tbtn.-on { background: #28463e; color: #b8e2ca; border: round #48566f; }
+    Button:focus { text-style: bold; border: round #7dcfff; }
     .bl-btn, .bcs-btn, .bce-btn, .kbd-btn { margin-right: 1; min-width: 5; }
-    .bl-btn.-on, .bcs-btn.-on, .bce-btn.-on, .kbd-btn.-on { background: $primary; color: $text; }
+    .bl-btn.-on, .bcs-btn.-on, .bce-btn.-on, .kbd-btn.-on { background: #30394e; color: #c0caf5; border: round #7dcfff; }
 
     /* ── processes ── */
     #proc-bar { height: 4; overflow-x: auto; }
     #proc-bar Button { min-width: 0; }
     .sort-btn { margin-right: 1; }
-    .sort-btn.-on { background: $primary; color: $text; }
-    #kill-btn { margin-left: 1; background: $error; }
+    .sort-btn.-on { background: #30394e; color: #c0caf5; }
+    #kill-btn { margin-left: 1; background: #422c3b; color: #f0a2ac; border: solid #88516b; }
     #drop-btn { margin-left: 1; }
     #proc-status { margin-left: 2; color: $text-muted; }
     DataTable { height: 1fr; }
+    DataTable > .datatable--header { background: #24344c; color: #c8e8f0; text-style: bold; }
+    DataTable > .datatable--odd-row { background: #1a1b29 65%; }
+    DataTable > .datatable--even-row { background: transparent; }
+    DataTable > .datatable--cursor { background: #30394e; color: #c0caf5; }
 
     /* ── global ── */
-    #status { height: 1; background: $panel; color: $text-muted; padding: 0 2; }
+    #status { height: 1; background: #1a1b29; color: #a4aecf; padding: 0 2; }
+    #status.warning { color: #e0af68; }
+    #status.critical { color: #f7768e; text-style: bold; }
     #backend-status, #curve-points { height: auto; width: 1fr; padding: 0 1; }
     #backend-status { color: $text-muted; }
     #curve-points { color: #4dabf7; }
-    #cooling-box { height: auto; width: 1fr; border: round $primary; padding: 0 1; margin-top: 1; }
+    #cooling-box { height: auto; width: 1fr; border: solid $primary; padding: 0 1; margin-top: 1; }
     #curve-actions { height: 6; grid-size: 3; grid-rows: 3; grid-gutter: 0 1; }
     #curve-actions Button { width: 1fr; min-width: 0; }
     #curve-setup-help { height: auto; color: $text-muted; display: none; }
@@ -405,15 +447,15 @@ class GiveLaptopAC(App):
         with TabbedContent(id="tabs", initial="dash"):
 
             # ── 📊 Dashboard ─────────────────────────────────────────────
-            with TabPane("📊 Dashboard", id="dash"):
+            with TabPane("Overview", id="dash"):
                 with ScrollableContainer(id="dash-scroll"):
                     yield Static("OVERVIEW · v: detailed charts", id="dash-heading", markup=False)
                     yield Static("Reading hardware state…", id="dash-context", markup=False)
                     with Grid(id="overview-grid"):
-                        yield OverviewCard("CPU", "#f783ac", id="overview-cpu")
-                        yield OverviewCard("GPU", "#ff922b", id="overview-gpu")
-                        yield OverviewCard("MEMORY", "#9775fa", id="overview-memory")
-                        yield OverviewCard("BATTERY", "#51cf66", id="overview-battery")
+                        yield OverviewCard("CPU", "#7dcfff", id="overview-cpu")
+                        yield OverviewCard("GPU", "#bb9af7", id="overview-gpu")
+                        yield OverviewCard("Memory", "#bb9af7", id="overview-memory")
+                        yield OverviewCard("Battery", "#7dcfff", id="overview-battery")
                     yield Static("Cooling · waiting for readings", id="dash-cooling", markup=False)
                     yield Static("Activity · waiting for readings", id="dash-activity", markup=False)
                     with Collapsible(title="Sensor charts · v to expand/collapse", collapsed=True, id="dash-details"):
@@ -431,8 +473,8 @@ class GiveLaptopAC(App):
 
             yield from self._compose_controls_and_processes()
 
-        yield Footer(compact=True, show_command_palette=False)
-        yield Static("", id="status")
+        yield Footer(compact=False, show_command_palette=False)
+        yield Static("", id="status", markup=False)
 
     def _compose_sensor_charts(self) -> ComposeResult:
         # Create and store spark cards for later updates
@@ -520,24 +562,24 @@ class GiveLaptopAC(App):
 
     def _compose_controls_and_processes(self) -> ComposeResult:
         # ── 🎮 Controls ──────────────────────────────────────────────
-        with TabPane("🎮 Controls", id="ctrl"):
+        with TabPane("Controls", id="ctrl"):
             with ScrollableContainer(id="ctrl-scroll"):
                 with Container(id="presets"):
                     with Horizontal(id="preset-row"):
-                        yield Button("🎮 Gaming", id="p-gaming")
-                        yield Button("🤖 AI Mode", id="p-ai")
-                        yield Button("⚖  Balanced", id="p-balanced")
-                        yield Button("🌙 Silent", id="p-silent")
+                        yield Button("Gaming", id="p-gaming")
+                        yield Button("AI Mode", id="p-ai")
+                        yield Button("Balanced", id="p-balanced")
+                        yield Button("Silent", id="p-silent")
 
                 with Container(id="hwbox"):
                     yield CtrlRow(
                         "Performance",
-                        [("🌿 Eco", "eco"), ("⚖ Comfort", "comfort"), ("🚀 Turbo", "turbo")],
+                        [("Eco", "eco"), ("Comfort", "comfort"), ("Turbo", "turbo")],
                         cid="shift", id="shift-row",
                     )
                     yield CtrlRow(
                         "Fan Mode",
-                        [("🔄 Auto", "auto"), ("🤫 Silent", "silent"), ("⚙ Advanced", "advanced")],
+                        [("Auto", "auto"), ("Silent", "silent"), ("Advanced", "advanced")],
                         cid="fan", id="fan-row",
                     )
                     with Horizontal(id="toggle-row", classes="ex-row"):
@@ -589,16 +631,16 @@ class GiveLaptopAC(App):
                     yield Static("", id="curve-points", markup=False)
 
         # ── ⚙ Processes ──────────────────────────────────────────────
-        with TabPane("⚙ Processes", id="procs"):
+        with TabPane("Processes", id="procs"):
             with Horizontal(id="proc-bar"):
                 yield Button("Sort: CPU ▼", id="s-cpu", classes="sort-btn")
                 yield Button("Sort: RAM", id="s-mem", classes="sort-btn")
                 yield Button("Sort: Name", id="s-name", classes="sort-btn")
-                yield Button("🗡  Kill", id="kill-btn")
-                yield Button("🧹 Drop Cache", id="drop-btn")
+                yield Button("End process", id="kill-btn")
+                yield Button("Drop cache", id="drop-btn")
                 yield Label("", id="proc-status")
 
-            yield DataTable(id="ptable", cursor_type="row")
+            yield DataTable(id="ptable", cursor_type="row", zebra_stripes=True)
 
 
     # ── mount ─────────────────────────────────────────────────────────────────
@@ -638,8 +680,9 @@ class GiveLaptopAC(App):
         fan = ec_read("fan_mode") or "unknown"
         boost = " · Boost on" if ec_read("cooler_boost") == "on" else ""
         backend = "Controls connected" if self._fan_backend.status.connected else "Control service offline"
-        gpu = self._gpu_name if self._nvml_ok else "GPU telemetry EC-only"
-        self.query_one("#dash-context", Static).update(f"{mode} · Fans {fan}{boost} · {gpu} · {backend}")
+        context = self.query_one("#dash-context", Static)
+        context.update(f"{mode} · Fans {fan}{boost} · {backend}")
+        context.tooltip = self._gpu_name if self._nvml_ok else self._nvml_reason
 
     def _apply_config(self) -> None:
         cfg = self._config
@@ -690,10 +733,10 @@ class GiveLaptopAC(App):
 
         boost, supbat = ec_read("cooler_boost"), ec_read("super_battery")
         webcam, fn_key, win_key = ec_read("webcam"), ec_read("fn_key"), ec_read("win_key")
-        self._tog("boost-btn", None if boost is None else boost == "on", "🌀 Cooler Boost ON [c]", "Cooler Boost [c]")
-        self._tog("supbat-btn", None if supbat is None else supbat == "on", "🔋 Super Battery ON", "Super Battery")
-        self._tog("webcam-btn", None if webcam is None else webcam == "on", "📷 Webcam ON", "📷 Webcam")
-        self._tog("fnswap-btn", None if fn_key is None or win_key is None else fn_key == "left", "⌨ Fn↔Win: Left", "⌨ Fn↔Win: Right")
+        self._tog("boost-btn", None if boost is None else boost == "on", "Cooler Boost ON [c]", "Cooler Boost [c]")
+        self._tog("supbat-btn", None if supbat is None else supbat == "on", "Super Battery ON", "Super Battery")
+        self._tog("webcam-btn", None if webcam is None else webcam == "on", "Webcam ON", "Webcam")
+        self._tog("fnswap-btn", None if fn_key is None or win_key is None else fn_key == "left", "Fn↔Win: Left", "Fn↔Win: Right")
 
         for selector, current, prefix in (
             (".bl-btn", read_bat_limit(), "bl-"),
@@ -777,10 +820,14 @@ class GiveLaptopAC(App):
         btn.disabled = active is None
         btn.tooltip = "Control unavailable or unreadable" if active is None else None
 
-    def _status(self, msg: str, *, hold: bool = True) -> None:
+    def _status(self, msg: str, *, hold: bool = True, severity: str = "normal") -> None:
         if hold:
             self._status_until = time.monotonic() + 6
-        self.query_one("#status", Static).update(f" {msg}")
+        status = self.query_one("#status", Static)
+        status.update(f" {msg}")
+        status.tooltip = msg
+        status.set_class(severity == "warning", "warning")
+        status.set_class(severity == "critical", "critical")
 
     def _save_settings(self, message: str) -> None:
         if not save_config(self._config):
@@ -1006,12 +1053,16 @@ class GiveLaptopAC(App):
 
     # ─── ticks ────────────────────────────────────────────────────────────────
     def _tick(self) -> None:
+        # A queued timer can fire while Textual is removing the screen on exit.
+        if not self.query("#overview-cpu"):
+            return
         if not self._nvml_ok and time.monotonic() >= self._nvml_retry_at:
             self._connect_nvml()
             self._telemetry.nvml_available = self._nvml_ok
             self._telemetry.nvml_reason = self._nvml_reason
         sample = self._telemetry.sample()
         values = sample.values
+        self.query_one("#dash-heading", Static).update(f"Overview · updated {time.strftime('%H:%M:%S')}")
         for device in ("cpu", "gpu"):
             clock = values.get("cpu_frequency" if device == "cpu" else "gpu_clock")
             detail = (
@@ -1020,11 +1071,16 @@ class GiveLaptopAC(App):
                 f"{reading(None if clock is None else clock / 1000, 'GHz', decimals=1)}"
             )
             card = self.query_one(f"#overview-{device}", OverviewCard)
+            temperature = number(values.get(device + '_temp'))
+            thresholds = self._config.alerts
+            state = ('critical' if temperature is not None and temperature >= getattr(thresholds, device + '_crit')
+                     else 'warning' if temperature is not None and temperature >= getattr(thresholds, device + '_warn')
+                     else 'normal')
             card.update_reading(
-                values.get(device + "_load"), "N/A" if values.get(device + "_load") is None else f"{reading(values[device + '_load'], '%')} busy", detail,
+                values.get(device + "_load"), "N/A" if values.get(device + "_load") is None else f"{reading(values[device + '_load'], '%')} busy", detail, state=state,
             )
             if device == "gpu":
-                card.tooltip = self._gpu_name if self._nvml_ok else self._nvml_reason
+                card.tooltip += '\n' + (self._gpu_name if self._nvml_ok else self._nvml_reason)
         self.query_one("#overview-memory", OverviewCard).update_reading(
             values.get("ram"), f"{reading(values.get('ram'), '%')} RAM used",
             f"GPU memory {reading(values.get('vram'), '%')}",
@@ -1077,6 +1133,7 @@ class GiveLaptopAC(App):
                 parts.append(f"{label} {value:.1f}{unit}")
 
         alerts = []
+        severity = 'warning'
         cfg = self._config.alerts
         for metric, label, warning, critical in (
             ("cpu_temp", "CPU", cfg.cpu_warn, cfg.cpu_crit),
@@ -1085,6 +1142,7 @@ class GiveLaptopAC(App):
             value = values[metric]
             if value is not None and value >= critical:
                 alerts.append(f"🔥 {label} {value:.0f}°C")
+                severity = 'critical'
             elif value is not None and value >= warning:
                 alerts.append(f"⚠ {label} {value:.0f}°C")
         if (
@@ -1092,12 +1150,15 @@ class GiveLaptopAC(App):
             and values["cpu_temp"] is not None and values["cpu_temp"] > 60
         ):
             alerts.append("🛑 CPU fan stalled!")
+            severity = 'critical'
         if alerts:
-            self._status(" | ".join(alerts), hold=False)
+            self._status(" | ".join(alerts), hold=False, severity=severity)
         elif time.monotonic() >= self._status_until:
             self._status(" | ".join(parts) or "Waiting for sensor readings", hold=False)
 
     def _tick_procs(self) -> None:
+        if not self.query("#ptable"):
+            return
         dt = self.query_one("#ptable", DataTable)
         selected = None
         if not self._process_selection_lost and 0 <= dt.cursor_row < len(self._processes):
