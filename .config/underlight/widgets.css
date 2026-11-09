@@ -229,13 +229,12 @@ progressbar progress {
 .drive-row {
   padding: 7px 0 5px;
   border-top: 1px solid rgba(65, 72, 104, 0.35);
-  transition: margin-left 0.25s ease, opacity 0.25s ease, background 0.25s ease;
+  transition: opacity 0.25s ease, background 0.25s ease;
   border-radius: 8px;
   margin: 0 -4px;
 }
 
 .drive-row:hover {
-  margin-left: 6px;
   opacity: 0.95;
   background: rgba(72, 202, 228, 0.05);
 }

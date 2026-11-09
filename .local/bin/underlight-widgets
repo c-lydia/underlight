@@ -9,6 +9,7 @@ import os
 import pathlib
 import subprocess
 import time
+import threading
 from datetime import datetime
 
 import cairo
@@ -28,6 +29,8 @@ CSS_FILE = APP_DIR / "widgets.css"
 class UnderlightWidgets:
     def __init__(self):
         self.windows = []
+        self._pending_polls = set()
+        self._drive_refresh_requested = False
         self._stack_top = 56
         self._stack_gap = 10
         self._restack_pending = False
@@ -381,6 +384,7 @@ class UnderlightWidgets:
         players = sorted(
             name for name in reply.unpack()[0] if name.startswith("org.mpris.MediaPlayer2.")
         )
+        last_query_error = None
         for player in players:
             try:
                 props = bus.call_sync(
@@ -399,16 +403,45 @@ class UnderlightWidgets:
                 artists = metadata.get("xesam:artist", [])
                 if title:
                     return player, props.get("PlaybackStatus", ""), title, ", ".join(artists)
-            except GLib.Error:
-                continue
+            except GLib.Error as error:
+                last_query_error = error
+        if last_query_error is not None:
+            raise last_query_error
         return None
 
-    def _update_media(self):
-        try:
-            media = self._media_properties()
-        except GLib.Error:
-            media = None
+    def _poll_in_background(self, name, read, apply, failed):
+        """Read external state without blocking GTK; apply it on the main loop."""
+        if name in self._pending_polls:
+            return
+        self._pending_polls.add(name)
 
+        def finish(result, error):
+            self._pending_polls.discard(name)
+            if error is None:
+                apply(result)
+            else:
+                failed(error)
+            # GLib idle handlers repeat unless they return False.
+            return False
+
+        def collect():
+            try:
+                result = read()
+            except Exception as error:
+                GLib.idle_add(finish, None, error)
+            else:
+                GLib.idle_add(finish, result, None)
+
+        threading.Thread(target=collect, daemon=True).start()
+
+    def _update_media(self):
+        self._poll_in_background(
+            "media", self._media_properties, self._apply_media,
+            lambda error: None,
+        )
+        return True
+
+    def _apply_media(self, media):
         if not media:
             self._player_bus_name = None
             was_visible = self._media_visible
@@ -422,9 +455,10 @@ class UnderlightWidgets:
         self.media_state.set_text(state.lower())
         self.media_title.set_text(title)
         self.media_artist.set_text(artist or "Unknown artist")
-        self._media_visible = True
-        self.media_window.show_all()
-        self._queue_restack()
+        if not self._media_visible:
+            self._media_visible = True
+            self.media_window.show_all()
+            self._queue_restack()
         return True
 
     def _media_action(self, _button, method):
@@ -487,12 +521,32 @@ class UnderlightWidgets:
         return volumes
 
     def _update_drives(self, force=False):
-        try:
-            volumes = self._external_volumes()
-        except (OSError, subprocess.SubprocessError, ValueError) as error:
-            self.status.set_text(f"Could not read drives: {error}")
+        if "drives" in self._pending_polls:
+            if force:
+                self._drive_refresh_requested = True
             return True
+        self._poll_in_background(
+            "drives", self._external_volumes,
+            lambda volumes: self._apply_drives(volumes, force),
+            self._drive_poll_failed,
+        )
+        return True
 
+    def _drive_poll_failed(self, error):
+        self.status.set_text(f"Could not read drives: {error}")
+        self._repeat_drive_refresh()
+
+    def _repeat_drive_refresh(self):
+        if not self._drive_refresh_requested:
+            return False
+        self._drive_refresh_requested = False
+        self._update_drives(force=True)
+        return True
+
+    def _apply_drives(self, volumes, force=False):
+        # A mount may finish while an older lsblk query is still in flight.
+        if self._repeat_drive_refresh():
+            return
         signature = json.dumps(volumes, sort_keys=True)
         if not force and signature == self._last_drive_signature:
             return True

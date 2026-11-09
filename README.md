@@ -238,7 +238,14 @@ sit above the wallpaper but below normal application windows and are styled by
   actions
 
 `underlight-widgets-toggle` starts, stops, or restarts the single widget
-instance through Hyprland.
+instance through Hyprland. Media and drive polling runs outside GTK's drawing
+thread, so slow players or storage queries do not freeze widget updates. Temporary
+media-query failures keep the last display until the next successful query;
+confirmed playback shutdown hides the media panel. Drive hover effects keep the
+row geometry fixed to avoid shifting the panel under the pointer.
+
+After updating the widget program or stylesheet, apply the changes with
+`underlight-widgets-toggle restart`.
 
 ### Helper layer
 
